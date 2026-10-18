@@ -1,4 +1,5 @@
 import { createBrowserRouter } from "react-router"
+import RootLayout from "@/RootLayout"
 import CampSelectionPage from "@/pages/CampSelectionPage"
 import MyfRegisterPage from "@/pages/MyfRegisterPage"
 import MyaRegisterPage from "@/pages/MyaRegisterPage"
@@ -17,25 +18,27 @@ import AuditLogPage from "@/pages/AuditLogPage"
 // import { RequireRole } from "@/components/RequireRole"
 
 export const router = createBrowserRouter([
-  // Public routes
-  { path: "/", element: <CampSelectionPage /> },
-  { path: "/register/myf", element: <MyfRegisterPage /> },
-  { path: "/register/mya", element: <MyaRegisterPage /> },
-  { path: "/register-facilitator", element: <RegisterFacilitatorPage /> },
-  { path: "/login", element: <LoginPage /> },
-
-  // Staff portal routes (wrapped in the shared sidebar layout)
   {
-    element: <PortalLayout />,
+    element: <RootLayout />,
     children: [
-      { path: "/dashboard", element: <DashboardPage /> },
-      { path: "/reports", element: <ReportsPage /> },
-      { path: "/waivers", element: <WaiversPage /> },
-      { path: "/payments", element: <PaymentsPage /> },
-      { path: "/camp-setup", element: <CampSetupPage /> },
-      { path: "/users", element: <UsersPage /> },
-      { path: "/campuses", element: <CampusesPage /> },
-      { path: "/audit-log", element: <AuditLogPage /> },
+      { path: "/", element: <CampSelectionPage /> },
+      { path: "/register/myf", element: <MyfRegisterPage /> },
+      { path: "/register/mya", element: <MyaRegisterPage /> },
+      { path: "/register-facilitator", element: <RegisterFacilitatorPage /> },
+      { path: "/login", element: <LoginPage /> },
+      {
+        element: <PortalLayout />,
+        children: [
+          { path: "/dashboard", element: <DashboardPage /> },
+          { path: "/reports", element: <ReportsPage /> },
+          { path: "/waivers", element: <WaiversPage /> },
+          { path: "/payments", element: <PaymentsPage /> },
+          { path: "/camp-setup", element: <CampSetupPage /> },
+          { path: "/users", element: <UsersPage /> },
+          { path: "/campuses", element: <CampusesPage /> },
+          { path: "/audit-log", element: <AuditLogPage /> },
+        ],
+      },
     ],
   },
 ])

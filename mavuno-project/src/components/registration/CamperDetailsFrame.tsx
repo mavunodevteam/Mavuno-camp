@@ -92,6 +92,11 @@ export function createEmptyCamper(): CamperFormState {
   }
 }
 
+type RegistrationFieldIdFn = (
+  camperId: string,
+  field: keyof CamperFieldErrors
+) => string
+
 type CamperDetailsFrameProps = {
   camper: CamperFormState
   index: number
@@ -100,6 +105,16 @@ type CamperDetailsFrameProps = {
   onRemove?: () => void
   showFieldErrors?: boolean
   fieldErrors?: CamperFieldErrors
+  /** Override default inline error copy (e.g. MYA age reasons). */
+  fieldErrorMessages?: Partial<Record<keyof CamperFieldErrors, string>>
+  /** MYF: age dropdown. MYA: typed numeric age. */
+  ageInput?: "select" | "text"
+  /** MYA: digits-only while typing. */
+  ageDigitsOnly?: boolean
+  onAgeBlur?: () => void
+  /** Show age inline error before form submit (e.g. MYA blur validation). */
+  ageShowError?: boolean
+  registrationFieldId?: RegistrationFieldIdFn
 }
 
 export function CamperDetailsFrame({
@@ -110,9 +125,23 @@ export function CamperDetailsFrame({
   onRemove,
   showFieldErrors = false,
   fieldErrors = {},
+  fieldErrorMessages = {},
+  ageInput = "select",
+  ageDigitsOnly = false,
+  onAgeBlur,
+  ageShowError = false,
+  registrationFieldId = myfRegistrationFieldId,
 }: CamperDetailsFrameProps) {
+  const fieldId = registrationFieldId
   const show = (key: keyof CamperFieldErrors) =>
     showFieldErrors && Boolean(fieldErrors[key])
+
+  const showAgeError = show("age") || ageShowError
+
+  function handleAgeInputChange(raw: string) {
+    const next = ageDigitsOnly ? raw.replace(/\D/g, "") : raw
+    onUpdate({ age: next })
+  }
 
   const [medicalOverWordLimit, setMedicalOverWordLimit] = useState(false)
   const [specialNeedsOverWordLimit, setSpecialNeedsOverWordLimit] =
@@ -176,7 +205,7 @@ export function CamperDetailsFrame({
         <div className="flex w-full flex-col gap-[14px] desktop:max-w-[645px]">
           <div className="grid w-full grid-cols-2 gap-4 tablet:grid-cols-3">
             <label
-              id={myfRegistrationFieldId(camper.id, "firstName")}
+              id={fieldId(camper.id, "firstName")}
               className="flex min-w-0 flex-col gap-2"
             >
               <span className="text-sm font-medium leading-5 text-[#18181B]">
@@ -191,7 +220,7 @@ export function CamperDetailsFrame({
               <FieldError show={show("firstName")} />
             </label>
             <label
-              id={myfRegistrationFieldId(camper.id, "lastName")}
+              id={fieldId(camper.id, "lastName")}
               className="flex min-w-0 flex-col gap-2"
             >
               <span className="text-sm font-medium leading-5 text-[#18181B]">
@@ -206,38 +235,52 @@ export function CamperDetailsFrame({
               <FieldError show={show("lastName")} />
             </label>
             <label
-              id={myfRegistrationFieldId(camper.id, "age")}
+              id={fieldId(camper.id, "age")}
               className="flex min-w-0 flex-col gap-2"
             >
               <span className="text-sm font-medium leading-5 text-[#18181B]">
                 Age
               </span>
-              <div className="relative">
-                <select
-                  className={cn(
-                    registerFieldInputClasses(show("age")),
-                    "appearance-none pr-11"
-                  )}
+              {ageInput === "text" ? (
+                <input
+                  type="text"
+                  inputMode="numeric"
+                  className={registerFieldInputClasses(showAgeError)}
                   value={camper.age}
-                  onChange={(e) => onUpdate({ age: e.target.value })}
-                >
-                  <option value="" disabled />
-                  {MYF_AGES.map((age) => (
-                    <option key={age} value={String(age)}>
-                      {age}
-                    </option>
-                  ))}
-                </select>
-                <ChevronDown
-                  className={selectChevronClass}
-                  strokeWidth={2}
-                  aria-hidden
+                  onChange={(e) => handleAgeInputChange(e.target.value)}
+                  onBlur={onAgeBlur}
                 />
-              </div>
-              <FieldError show={show("age")} />
+              ) : (
+                <div className="relative">
+                  <select
+                    className={cn(
+                      registerFieldInputClasses(show("age")),
+                      "appearance-none pr-11"
+                    )}
+                    value={camper.age}
+                    onChange={(e) => onUpdate({ age: e.target.value })}
+                  >
+                    <option value="" disabled />
+                    {MYF_AGES.map((age) => (
+                      <option key={age} value={String(age)}>
+                        {age}
+                      </option>
+                    ))}
+                  </select>
+                  <ChevronDown
+                    className={selectChevronClass}
+                    strokeWidth={2}
+                    aria-hidden
+                  />
+                </div>
+              )}
+              <FieldError
+                show={showAgeError}
+                message={fieldErrorMessages.age}
+              />
             </label>
             <div
-              id={myfRegistrationFieldId(camper.id, "gender")}
+              id={fieldId(camper.id, "gender")}
               className="flex min-w-0 flex-col gap-2"
             >
               <span className="text-sm font-medium leading-5 text-[#18181B]">
@@ -278,7 +321,7 @@ export function CamperDetailsFrame({
               <FieldError show={show("gender")} />
             </div>
             <label
-              id={myfRegistrationFieldId(camper.id, "phone")}
+              id={fieldId(camper.id, "phone")}
               className="flex min-w-0 flex-col gap-2"
             >
               <span className="text-sm font-medium leading-5 text-[#18181B]">
@@ -304,7 +347,7 @@ export function CamperDetailsFrame({
               />
             </label>
             <div
-              id={myfRegistrationFieldId(camper.id, "wantsBaptism")}
+              id={fieldId(camper.id, "wantsBaptism")}
               className="flex min-w-0 flex-col gap-2"
             >
               <span className="text-sm font-medium leading-5 text-[#18181B]">
@@ -395,7 +438,7 @@ export function CamperDetailsFrame({
             </div>
           </div>
           <label
-            id={myfRegistrationFieldId(camper.id, "campusOrChurch")}
+            id={fieldId(camper.id, "campusOrChurch")}
             className="flex min-w-0 flex-1 flex-col gap-2 tablet:w-[205px] tablet:flex-none tablet:shrink-0"
           >
             <span className="text-sm font-medium leading-5 text-[#18181B]">
@@ -484,7 +527,7 @@ export function CamperDetailsFrame({
           </button>
           {camper.hasMedicalCondition ? (
             <label
-              id={myfRegistrationFieldId(camper.id, "medicalConditionDetails")}
+              id={fieldId(camper.id, "medicalConditionDetails")}
               className="flex w-full flex-col gap-2"
             >
               <span className="text-sm font-medium leading-5 text-[#18181B]">
@@ -553,7 +596,7 @@ export function CamperDetailsFrame({
           </button>
           {camper.hasSpecialNeeds ? (
             <label
-              id={myfRegistrationFieldId(camper.id, "specialNeedsDetails")}
+              id={fieldId(camper.id, "specialNeedsDetails")}
               className="flex w-full flex-col gap-2"
             >
               <span className="text-sm font-medium leading-5 text-[#18181B]">
