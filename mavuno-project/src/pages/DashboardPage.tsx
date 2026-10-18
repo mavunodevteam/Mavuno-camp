@@ -13,6 +13,7 @@ import { fetchCamps, fetchCampuses, fetchDepartureReasons } from "@/lib/api/look
 import { checkIn } from "@/lib/api/portal"
 import type { AttendanceStatus, Camp, Lookup, RosterRow } from "@/lib/api/types"
 import { useDashboardTotals, useDebouncedValue, useRoster } from "@/lib/useDashboardData"
+import { approveWaiver, verifyPayment } from "@/lib/api/admin"
 
 const PAGE_SIZE = 9
 
@@ -90,6 +91,26 @@ export default function DashboardPage() {
     }
   }
 
+    async function handleVerifyPayment(row: RosterRow) {
+    try {
+      await verifyPayment(row.batch_id)
+      toast.success("Payment marked as verified")
+      reloadAll()
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Something went wrong")
+    }
+  }
+
+  async function handleApproveAssistance(row: RosterRow) {
+    try {
+      await approveWaiver(row.batch_id)
+      toast.success("Financial assistance approved")
+      reloadAll()
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Something went wrong")
+    }
+  }
+
   return (
     <div className="space-y-4">
       <CampTabs camps={camps} value={campId} onChange={changeCamp} />
@@ -126,6 +147,9 @@ export default function DashboardPage() {
         busyId={busyId}
         onCheckIn={handleCheckIn}
         onExitPermit={setPermitRow}
+        canManage={isHead}
+        onVerifyPayment={handleVerifyPayment}
+        onApproveAssistance={handleApproveAssistance}
       />
 
       <ExitPermitDialog

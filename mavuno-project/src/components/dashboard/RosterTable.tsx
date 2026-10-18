@@ -5,6 +5,7 @@ import { Input } from "@/components/ui/input"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { formatPhone } from "@/lib/phone"
 import type { AttendanceStatus, Lookup, RosterRow } from "@/lib/api/types"
+import { RowMenu } from "./RowMenu"
 
 const STATUS: Record<AttendanceStatus, { label: string; className: string }> = {
   registered: { label: "Registered", className: "border-orange-200 bg-orange-50 text-orange-700" },
@@ -39,6 +40,9 @@ export interface RosterTableProps {
   busyId: string | null
   onCheckIn: (row: RosterRow) => void
   onExitPermit: (row: RosterRow) => void
+  canManage?: boolean
+  onVerifyPayment?: (row: RosterRow) => void
+  onApproveAssistance?: (row: RosterRow) => void
 }
 
 export function RosterTable(p: RosterTableProps) {
@@ -98,17 +102,18 @@ export function RosterTable(p: RosterTableProps) {
               <TableHead>Medical condition</TableHead>
               <TableHead>Special needs</TableHead>
               <TableHead>Actions</TableHead>
+              {p.canManage && <TableHead>More</TableHead>}
             </TableRow>
           </TableHeader>
           <TableBody>
             {p.loading && (
               <TableRow>
-                <TableCell colSpan={7}>Loading...</TableCell>
+                <TableCell colSpan={p.canManage ? 8 : 7}>Loading...</TableCell>
               </TableRow>
             )}
             {!p.loading && p.rows.length === 0 && (
               <TableRow>
-                <TableCell colSpan={7}>No campers found.</TableCell>
+                <TableCell colSpan={p.canManage ? 8 : 7}>No campers found.</TableCell>
               </TableRow>
             )}
             {!p.loading &&
@@ -161,6 +166,15 @@ export function RosterTable(p: RosterTableProps) {
                         <span className="text-xs text-muted-foreground">{formatTime(row.checked_out_at)}</span>
                       )}
                     </TableCell>
+                    {p.canManage && (
+                      <TableCell>
+                        <RowMenu
+                          paymentStatus={row.payment_status}
+                          onVerifyPayment={() => p.onVerifyPayment?.(row)}
+                          onApproveAssistance={() => p.onApproveAssistance?.(row)}
+                        />
+                      </TableCell>
+                    )}
                   </TableRow>
                 )
               })}

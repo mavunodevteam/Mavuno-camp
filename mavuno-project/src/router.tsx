@@ -7,6 +7,14 @@ import LoginPage from "@/pages/LoginPage"
 import DashboardPage from "@/pages/DashboardPage"
 import ReportsPage from "@/pages/ReportsPage"
 import PortalLayout from "@/components/PortalLayout"
+import WaiversPage from "@/pages/WaiversPage"
+// import RegistrationPage from "@/pages/RegistrationPage"
+import PaymentsPage from "@/pages/PaymentsPage"
+import CampSetupPage from "@/pages/CampSetupPage"
+import UsersPage from "@/pages/UsersPage"
+import CampusesPage from "@/pages/CampusesPage"
+import AuditLogPage from "@/pages/AuditLogPage"
+// import { RequireRole } from "@/components/RequireRole"
 
 export const router = createBrowserRouter([
   // Public routes
@@ -22,6 +30,12 @@ export const router = createBrowserRouter([
     children: [
       { path: "/dashboard", element: <DashboardPage /> },
       { path: "/reports", element: <ReportsPage /> },
+      { path: "/waivers", element: <WaiversPage /> },
+      { path: "/payments", element: <PaymentsPage /> },
+      { path: "/camp-setup", element: <CampSetupPage /> },
+      { path: "/users", element: <UsersPage /> },
+      { path: "/campuses", element: <CampusesPage /> },
+      { path: "/audit-log", element: <AuditLogPage /> },
     ],
   },
 ])
