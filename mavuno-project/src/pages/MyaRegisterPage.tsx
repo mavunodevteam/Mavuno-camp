@@ -1,782 +1,565 @@
-/**
- * Camper Registration Route (`app/routes/register.tsx`)
- *
- * Full-Stack Architecture Overview:
- * This route manages the core multi-camper registration funnel for Mavuno Camp Fearless.
- * It coordinates:
- * 1. Query parameter resolution (`?camp=myf|mya`) to apply targeted business logic.
- * 2. Dynamic, multi-attendee form state orchestration (1 to N campers per registration session).
- * 3. Shared emergency contact / guardian capture.
- * 4. M-Pesa mobile money payment verification (Paybill 400200, Account CAMPFEARLESS).
- * 5. Two-phase transactional data ingestion into Supabase PostgreSQL:
- *    - Phase A: Inserts a parent batch record (`registration_batches`) capturing payment and guardian contact.
- *    - Phase B: Sequentially inserts relational child records (`campers`) referencing the generated `batch_id`.
- */
+import { useEffect, useMemo, useRef, useState } from "react"
+import { ChevronDown, Minus, Plus } from "lucide-react"
+import {
+  CamperDetailsFrame,
+  createEmptyCamper,
+  type CamperFieldErrors,
+  type CamperFormState,
+} from "@/components/registration/CamperDetailsFrame"
+import {
+  FIELD_ERROR_MESSAGE,
+  FieldError,
+} from "@/components/registration/FieldError"
+import { PHONE_FORMAT_ERROR_MESSAGE } from "@/lib/registrationFormat"
+import { registerFieldInputClasses } from "@/components/registration/registerFieldStyles"
+import { cn } from "@/lib/utils"
+import { useRegistrationToast } from "@/components/registration/RegistrationToastProvider"
+import { REGISTRATION_TOAST_MESSAGES } from "@/components/registration/registrationToastMessages"
+import {
+  createEmptyEmergencyContact,
+  getMyaAgeIssue,
+  myaAgeFieldMessage,
+  myaEmergencyFieldId,
+  myaRegistrationFieldId,
+  type EmergencyContactState,
+  type EmergencyFieldErrors,
+  validateMyaRegistration,
+} from "@/lib/myaRegisterValidation"
+import { scrollToRegistrationField } from "@/lib/scrollToRegistrationField"
+import campRegistrationCompactImage from "@/assets/camp-registration-compact.png"
+import campRegistrationImage from "@/assets/camp-registration.jpg"
+import campFearlessLogo from "@/assets/camp-fearless-logo.png"
+import iconBrackets from "@/assets/partner-icons/icon-brackets.png"
+import iconCrosshatch from "@/assets/partner-icons/icon-crosshatch.png"
+import iconRays from "@/assets/partner-icons/icon-rays.png"
+import iconRings from "@/assets/partner-icons/icon-rings.png"
+import iconSquares from "@/assets/partner-icons/icon-squares.png"
+import iconSunburst from "@/assets/partner-icons/icon-sunburst.png"
 
-import { useState, useEffect } from "react";
-import { Link, useSearchParams, useNavigate } from "react-router";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Minus, Plus, Trash2 } from "lucide-react";
+const partnerIcons = [
+  iconSquares,
+  iconRays,
+  iconSunburst,
+  iconCrosshatch,
+  iconRings,
+  iconBrackets,
+]
 
-/**
- * Route Metadata Generator (`meta`)
- *
- * Emits page-level title and description for search engines, browser tabs,
- * and social graph link previews.
- *
- * @returns {Array<Object>} Meta tags injected into the document `<head>`.
- */
-export function meta() {
-  return [
-    { title: "Mavuno Camp Fearless - Camper Registration" },
-    { name: "description", content: "Register for Mavuno Camp Fearless." },
-  ];
-}
+const REGISTRATION_FEE_KES = 1000
 
-/**
- * Camper Data Model (`CamperData`)
- */
-type CamperData = {
-  id: number;
-  firstName: string;
-  lastName: string;
-  age: string;
-  gender: string;
-  phone: string;
-  phoneCode: string;
-  baptised: string;
-  isFromMavuno: string;
-  campus: string;
-  churchName: string;
-  hasMedical: boolean;
-  medicalDetails: string;
-  hasSpecialNeeds: boolean;
-  specialNeedsDetails: string;
-};
+const RELATIONSHIP_OPTIONS = [
+  "Parent",
+  "Legal Guardian",
+  "Sibling",
+  "Relative",
+  "Other",
+] as const
 
-type Campus = {
-  id: string;
-  name: string;
-};
+const selectChevronClass =
+  "pointer-events-none absolute top-1/2 right-3 size-4 -translate-y-1/2 text-[#71717A]"
 
-const DEFAULT_CAMPUSES: Campus[] = [
-  { id: "hill-city", name: "Hill City" },
-  { id: "mashariki", name: "Mashariki" },
-  { id: "downtown", name: "Downtown" },
-  { id: "lifespring", name: "Lifespring" },
-];
+export default function MyaRegisterPage() {
+  const { showRegistrationToast } = useRegistrationToast()
+  const [campers, setCampers] = useState<CamperFormState[]>(() => [
+    createEmptyCamper(),
+  ])
+  const [emergency, setEmergency] = useState<EmergencyContactState>(() =>
+    createEmptyEmergencyContact()
+  )
+  const [mpesaCode, setMpesaCode] = useState("")
+  const [validationAttempted, setValidationAttempted] = useState(false)
+  const [ageBlurredCamperIds, setAgeBlurredCamperIds] = useState<Set<string>>(
+    () => new Set()
+  )
+  const [invalidScrollTick, setInvalidScrollTick] = useState(0)
+  const scrollTargetFieldIdRef = useRef<string | null>(null)
 
-/**
- * Camper Object Factory (`createEmptyCamper`)
- */
-const createEmptyCamper = (id: number): CamperData => ({
-  id,
-  firstName: "",
-  lastName: "",
-  age: "",
-  gender: "",
-  phone: "",
-  phoneCode: "+254",
-  baptised: "",
-  isFromMavuno: "yes",
-  campus: "",
-  churchName: "",
-  hasMedical: false,
-  medicalDetails: "",
-  hasSpecialNeeds: false,
-  specialNeedsDetails: "",
-});
+  const camperCount = campers.length
+  const totalDue = camperCount * REGISTRATION_FEE_KES
 
-/**
- * Camper Registration Component (`Register`)
- */
-export default function Register() {
-  const navigate = useNavigate();
-  const [searchParams] = useSearchParams();
+  const { camperErrorsById, emergencyErrors } = useMemo(() => {
+    if (!validationAttempted) {
+      return {
+        camperErrorsById: {} as Record<string, CamperFieldErrors>,
+        emergencyErrors: {} as EmergencyFieldErrors,
+      }
+    }
+    return validateMyaRegistration(campers, emergency, mpesaCode)
+  }, [validationAttempted, campers, emergency, mpesaCode])
 
-  // Resolve camp category from URL query parameters (default to "MYA" for Young Adults)
-  const campType = searchParams.get("camp")?.toUpperCase() || "MYA";
+  function shouldShowMyaAgeError(camper: CamperFormState): boolean {
+    if (getMyaAgeIssue(camper.age) === null) return false
+    if (validationAttempted && camperErrorsById[camper.id]?.age) return true
+    if (ageBlurredCamperIds.has(camper.id)) return true
+    return false
+  }
 
-  // Dynamic age options: starting from 18 for MYA (or 14-17 for teens if MYF)
-  const ageOptions = campType === "MYF"
-    ? ["14", "15", "16", "17"]
-    : Array.from({ length: 33 }, (_, i) => String(18 + i)); // 18 through 50
+  function markAgeBlurred(camperId: string) {
+    setAgeBlurredCamperIds((prev) => new Set(prev).add(camperId))
+  }
 
-  // Dynamic list of campers registered in this session
-  const [campers, setCampers] = useState<CamperData[]>([createEmptyCamper(1)]);
+  function showEmergencyError(key: keyof EmergencyFieldErrors): boolean {
+    return validationAttempted && Boolean(emergencyErrors[key])
+  }
 
-  // Shared emergency contact / guardian state
-  const [gFirstName, setGFirstName] = useState("");
-  const [gLastName, setGLastName] = useState("");
-  const [gPhone, setGPhone] = useState("");
-  const [relationship, setRelationship] = useState("");
-
-  // Payment states
-  const [mpesaCode, setMpesaCode] = useState("");
-  const [isSubmitting, setIsSubmitting] = useState(false);
-
-  // Dynamic church campuses retrieved from database
-  const [campuses, setCampuses] = useState<Campus[]>(DEFAULT_CAMPUSES);
-  const [isLoadingCampuses, setIsLoadingCampuses] = useState(false);
+  function handleCompleteRegistration() {
+    setValidationAttempted(true)
+    const { isValid, firstInvalidFieldId, hasUnder18Age } =
+      validateMyaRegistration(campers, emergency, mpesaCode)
+    if (isValid) {
+      // Submit when backend is wired
+      return
+    }
+    if (hasUnder18Age) {
+      showRegistrationToast({
+        variant: "error",
+        message: REGISTRATION_TOAST_MESSAGES.myaAgeMismatch,
+        action: {
+          label: REGISTRATION_TOAST_MESSAGES.myfRegisterLinkLabel,
+          href: "/register/myf",
+        },
+      })
+    }
+    if (firstInvalidFieldId) {
+      scrollTargetFieldIdRef.current = firstInvalidFieldId
+      setInvalidScrollTick((tick) => tick + 1)
+    }
+  }
 
   useEffect(() => {
-    let isMounted = true;
-    const fetchCampuses = async () => {
-      try {
-        const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-        const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
-        if (!supabaseUrl || supabaseUrl.includes("YOUR_REFERENCE_ID_HERE")) {
-          return;
-        }
-        setIsLoadingCampuses(true);
-        const res = await fetch(`${supabaseUrl}/rest/v1/campuses?select=*`, {
-          headers: {
-            "apikey": supabaseAnonKey,
-            "Authorization": `Bearer ${supabaseAnonKey}`,
-          },
-        });
-        if (res.ok) {
-          const data = await res.json();
-          if (Array.isArray(data) && data.length > 0 && isMounted) {
-            setCampuses(
-              data.map((c: any) => ({
-                id: String(c.id || c.value || c.code || c.name?.toLowerCase().replace(/\s+/g, "-")),
-                name: String(c.name || c.label || c.campus_name || c.id),
-              }))
-            );
-          }
-        }
-      } catch (err) {
-        console.warn("Could not retrieve campuses from database, using fallback:", err);
-      } finally {
-        if (isMounted) {
-          setIsLoadingCampuses(false);
-        }
-      }
-    };
+    if (invalidScrollTick === 0) return
+    const fieldId = scrollTargetFieldIdRef.current
+    if (!fieldId) return
+    scrollToRegistrationField(fieldId)
+  }, [invalidScrollTick])
 
-    fetchCampuses();
-    return () => {
-      isMounted = false;
-    };
-  }, []);
+  function addCamper() {
+    setCampers((prev) => [...prev, createEmptyCamper()])
+  }
 
-  // Derived quantity of attendees
-  const camperCount = campers.length;
+  function removeLastCamper() {
+    setCampers((prev) => (prev.length <= 1 ? prev : prev.slice(0, -1)))
+  }
 
-  /** Appends a new blank camper entry to the batch */
-  const incrementCount = () => setCampers(prev => [...prev, createEmptyCamper(Date.now())]);
+  function removeCamper(id: string) {
+    setCampers((prev) =>
+      prev.length <= 1 ? prev : prev.filter((c) => c.id !== id)
+    )
+  }
 
-  /** Decrements camper count by removing the last item in the array */
-  const decrementCount = () => {
-    if (campers.length > 1) {
-      setCampers(prev => prev.slice(0, -1));
-    }
-  };
-
-  /** Removes a specific camper by unique ID from the list */
-  const removeCamper = (id: number) => {
-    if (campers.length > 1) {
-      setCampers(prev => prev.filter(c => c.id !== id));
-    }
-  };
-
-  /** Immutably updates a specific field on a target camper record */
-  const updateCamper = (id: number, field: keyof CamperData, value: string | boolean | null) => {
-    const safeValue = value ?? "";
-    setCampers(prev => prev.map(c => c.id === id ? { ...c, [field]: safeValue } : c));
-  };
-
-  /** Comprehensive Client-side Form Validation Engine */
-  const isFormValid = () => {
-    for (const c of campers) {
-      if (c.firstName.trim() === "" || c.lastName.trim() === "" || c.age.trim() === "" || c.phone.trim() === "") return false;
-      if (campType === "MYF" && parseInt(c.age) > 17) return false;
-      if (c.isFromMavuno === "yes" && c.campus.trim() === "") return false;
-      if (c.isFromMavuno === "no" && c.churchName.trim() === "") return false;
-    }
-    if (gFirstName.trim() === "" || gLastName.trim() === "" || gPhone.trim() === "") return false;
-    if (mpesaCode.trim() === "") return false;
-    return true;
-  };
-
-  /** Total registration fee calculated at Ksh 1,000 per camper */
-  const totalAmount = camperCount * 1000;
-
-  /**
-   * Asynchronous Two-Phase Registration Submission (`handleSubmit`)
-   */
-  const handleSubmit = async () => {
-    if (!isFormValid() || isSubmitting) return;
-
-    try {
-      setIsSubmitting(true);
-      // 1. Create the Registration Batch first
-      const batchResponse = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/rest/v1/registration_batches`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "apikey": import.meta.env.VITE_SUPABASE_ANON_KEY,
-          "Authorization": `Bearer ${import.meta.env.VITE_SUPABASE_ANON_KEY}`,
-          "Prefer": "return=representation"
-        },
-        body: JSON.stringify({
-          camp_type: campType,
-          guardian_first_name: gFirstName,
-          guardian_last_name: gLastName,
-          guardian_phone_code: "+254",
-          guardian_phone: gPhone,
-          relationship: relationship,
-          mpesa_code: mpesaCode,
-          request_waiver: false
-        })
-      });
-
-      if (!batchResponse.ok) throw new Error("Failed to create batch");
-      const batchData = await batchResponse.json();
-      const batchId = batchData[0].id;
-
-      // 2. Loop through and create each Camper linked to that Batch ID
-      for (const camper of campers) {
-        const camperResponse = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/rest/v1/campers`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "apikey": import.meta.env.VITE_SUPABASE_ANON_KEY,
-            "Authorization": `Bearer ${import.meta.env.VITE_SUPABASE_ANON_KEY}`
-          },
-          body: JSON.stringify({
-            batch_id: batchId,
-            first_name: camper.firstName,
-            last_name: camper.lastName,
-            age: parseInt(camper.age) || 0,
-            gender: camper.gender || "male",
-            phone_code: camper.phoneCode || "+254",
-            phone: camper.phone,
-            is_baptised: camper.baptised === "yes",
-            is_from_mavuno: camper.isFromMavuno === "yes",
-            campus: camper.campus,
-            church_name: camper.churchName,
-            has_medical_condition: camper.hasMedical,
-            medical_details: camper.hasMedical ? camper.medicalDetails : null,
-            has_special_needs: camper.hasSpecialNeeds,
-            special_needs_details: camper.hasSpecialNeeds ? camper.specialNeedsDetails : null
-          })
-        });
-        if (!camperResponse.ok) throw new Error("Failed to register camper");
-      }
-
-      navigate("/");
-    } catch (error) {
-      console.error(error);
-      alert("Registration failed. Please check your connection and try again.");
-    } finally {
-      setIsSubmitting(false);
-    }
-  };
+  function updateCamper(id: string, patch: Partial<CamperFormState>) {
+    setCampers((prev) =>
+      prev.map((c) => (c.id === id ? { ...c, ...patch } : c))
+    )
+  }
 
   return (
-    <main className="min-h-screen bg-white px-4 py-3 lg:h-screen lg:overflow-hidden lg:p-4">
-      <div className="mx-auto grid h-full min-h-0 w-full grid-cols-1 gap-4 lg:max-w-[1448px] lg:grid-cols-[minmax(0,735fr)_minmax(0,681fr)] lg:gap-8 lg:overflow-hidden">
-
-        {/* Left Side Hero: Fixed in view, does not scroll on desktop */}
-        <section className="w-full shrink-0 overflow-hidden rounded-2xl lg:max-w-none lg:h-full">
-          {/* Mobile compact hero */}
+    <main className="min-h-svh bg-white px-4 py-3 desktop:h-svh desktop:overflow-hidden desktop:p-4">
+      <div className="mx-auto grid h-full min-h-0 w-full grid-cols-1 gap-4 desktop:max-w-[1448px] desktop:grid-cols-[minmax(0,735fr)_minmax(0,681fr)] desktop:gap-8 desktop:overflow-hidden">
+        <section className="w-full shrink-0 overflow-hidden rounded-2xl desktop:max-w-none">
           <div
-            className="relative box-border flex w-full overflow-hidden rounded-2xl bg-cover bg-center text-white lg:hidden p-5"
-            style={{ backgroundImage: "url('/assets/clay-banks-Ppz6b-YUDHw-unsplash 1.png')" }}
+            className="myf-compact-hero relative box-border flex w-full overflow-hidden rounded-2xl bg-cover bg-center text-white desktop:hidden"
+            style={{
+              backgroundImage: `url(${campRegistrationCompactImage})`,
+            }}
           >
-            <div className="pointer-events-none absolute inset-0 rounded-2xl bg-black/50" />
-            <div className="relative z-10 flex flex-col items-center text-center w-full py-2">
-              <Link to="/" className="inline-block mb-3">
-                <img src="/assets/Camp fearless logo.png" alt="Camp Fearless" className="h-14 w-auto object-contain" />
-              </Link>
-              <h1 className="text-xl font-black uppercase text-white mb-2">Camper Registration</h1>
-              <p className="text-xs text-zinc-200 font-normal max-w-sm mb-3">
-                Select the number of campers you are registering, provide a shared emergency contact, and enter individual details and medical notes for each person.
-              </p>
-              <p className="text-xs text-white/90">
-                <span className="font-semibold">Terms and Conditions</span> and <span className="font-semibold">Policy statement</span>
-              </p>
+            <div
+              className="pointer-events-none absolute inset-0 rounded-2xl bg-black/25"
+              aria-hidden
+            />
+            <div className="relative z-10 myf-compact-hero__outer">
+              <div className="myf-compact-hero__top-row">
+                <img
+                  src={campFearlessLogo}
+                  alt="Camp Fearless"
+                  className="myf-compact-hero__logo"
+                />
+                <h1 className="myf-compact-hero__title-phone">
+                  Camper Registration
+                </h1>
+                <div className="myf-compact-hero__text-col">
+                  <h1 className="myf-compact-hero__title-tablet">
+                    Camper Registration
+                  </h1>
+                  <p className="myf-compact-hero__body-tablet">
+                    Select the number of campers you are registering, provide a
+                    shared emergency contact, and enter individual details and
+                    medical notes for each person.
+                  </p>
+                  <p className="myf-compact-hero__terms-tablet">
+                    <span className="myf-compact-hero__terms-semibold">
+                      Terms and Conditions
+                    </span>
+                    <span className="myf-compact-hero__terms-regular"> and </span>
+                    <span className="myf-compact-hero__terms-semibold">
+                      Policy statement
+                    </span>
+                  </p>
+                </div>
+              </div>
+              <div className="myf-compact-hero__phone-stack">
+                <p className="myf-compact-hero__body-phone">
+                  Select the number of campers you are registering, provide a
+                  shared emergency contact, and enter individual details and
+                  medical notes for each person.
+                </p>
+                <p className="myf-compact-hero__terms-phone">
+                  <span className="myf-compact-hero__terms-semibold">
+                    Terms and Conditions
+                  </span>
+                  <span className="myf-compact-hero__terms-regular"> and </span>
+                  <span className="myf-compact-hero__terms-semibold">
+                    Policy statement
+                  </span>
+                </p>
+              </div>
             </div>
           </div>
 
-          {/* Desktop full hero */}
           <div
-            className="relative hidden min-h-0 flex-col justify-between overflow-hidden rounded-2xl bg-cover text-white lg:flex lg:h-full"
+            className="myf-desktop-hero relative hidden min-h-0 flex-col justify-between overflow-hidden rounded-2xl bg-cover bg-center text-white desktop:flex desktop:h-full"
             style={{
-              backgroundImage: "url('/assets/clay-banks-Ppz6b-YUDHw-unsplash 1.png')",
-              backgroundPosition: "50% 32%"
+              backgroundImage: `url(${campRegistrationImage})`,
+              backgroundPosition: "50% 32%",
             }}
           >
-            {/* Top dark gradient scrim */}
-            <div className="pointer-events-none absolute inset-0 z-[1] bg-gradient-to-b from-black/95 via-black/40 to-transparent h-[380px]" />
-            {/* Bottom dark subtle gradient scrim */}
-            <div className="pointer-events-none absolute inset-x-0 bottom-0 z-[1] bg-gradient-to-t from-black/85 via-black/35 to-transparent h-[220px]" />
+            <div className="myf-desktop-hero__top-scrim" aria-hidden />
+            <div className="myf-desktop-hero__mid-scrim" aria-hidden />
 
-            <header className="relative z-[2] flex flex-col items-center text-center text-white pt-8 px-6">
-              <div className="w-full max-w-[460px] flex flex-col items-center gap-4">
-                <Link to="/" className="inline-block transition-transform hover:scale-105">
-                  <img src="/assets/Camp fearless logo.png" alt="Camp Fearless" className="h-16 sm:h-20 w-auto object-contain" />
-                </Link>
-                <div className="flex flex-col gap-3">
-                  <h1 className="text-2xl sm:text-3xl font-black uppercase tracking-normal">
+            <header className="relative z-[2] flex flex-col items-center text-center text-white myf-desktop-hero__header">
+              <div className="myf-desktop-hero__content myf-desktop-hero__content-stack">
+                <img
+                  src={campFearlessLogo}
+                  alt="Camp Fearless"
+                  className="myf-desktop-hero__logo"
+                />
+
+                <div className="myf-desktop-hero__copy-stack">
+                  <h1 className="myf-desktop-hero__title">
                     Camper Registration
                   </h1>
-                  <p className="text-sm text-zinc-200/95 leading-relaxed font-normal">
-                    Select the number of campers you are registering, provide a shared emergency contact, and enter individual details and medical notes for each person.
+
+                  <p className="myf-desktop-hero__body">
+                    Select the number of campers you are registering, provide a
+                    shared emergency contact, and enter individual details and
+                    medical notes for each person.
                   </p>
                 </div>
               </div>
             </header>
 
-            <div className="flex-1" />
+            <div className="flex-1" aria-hidden />
 
-            <footer className="relative z-[2] mx-auto flex w-full shrink-0 flex-col items-center text-center text-white pb-5 px-6">
-              <div className="flex items-center justify-center gap-3.5 mb-3.5">
-                <img src="/assets/Motif 01.png" alt="Motif 1" className="w-6 h-6 object-contain" />
-                <img src="/assets/Motif 05.png" alt="Motif 2" className="w-6 h-6 object-contain" />
-                <img src="/assets/Motif 02.png" alt="Motif 3" className="w-6 h-6 object-contain" />
-                <img src="/assets/Motif 03.png" alt="Motif 4" className="w-6 h-6 object-contain" />
-                <img src="/assets/Motif 04.png" alt="Motif 5" className="w-6 h-6 object-contain" />
-                <img src="/assets/Motif 07.png" alt="Motif 6" className="w-6 h-6 object-contain" />
+            <footer className="relative z-[2] mx-auto flex w-full shrink-0 flex-col items-center text-center text-white myf-desktop-hero__footer">
+              <div
+                className="myf-desktop-hero__partners flex items-center justify-center"
+                aria-hidden
+              >
+                {partnerIcons.map((icon) => (
+                  <img
+                    key={icon}
+                    src={icon}
+                    alt=""
+                    className="myf-desktop-hero__partner-icon w-auto shrink-0 object-contain"
+                  />
+                ))}
               </div>
-              <p className="text-xs text-white/90">
-                <span className="font-semibold">Terms and Conditions</span>
-                {" and "}
-                <span className="font-semibold">Policy statement</span>
+
+              <p className="myf-desktop-hero__footer-terms">
+                <span className="myf-desktop-hero__footer-terms-semibold">
+                  Terms and Conditions
+                </span>
+                <span className="myf-desktop-hero__footer-terms-regular">
+                  {" "}
+                  and{" "}
+                </span>
+                <span className="myf-desktop-hero__footer-terms-semibold">
+                  Policy statement
+                </span>
               </p>
             </footer>
           </div>
         </section>
 
-        {/* Right Side Scrolling Form: ONLY this section scrolls on desktop */}
-        <section className="flex min-h-0 min-w-0 w-full flex-col gap-4 lg:h-full lg:overflow-y-auto lg:overscroll-y-contain lg:pr-2 [color-scheme:dark]">
+        <section className="flex min-h-0 min-w-0 w-full flex-col gap-4 desktop:h-full desktop:overflow-y-auto desktop:overscroll-y-contain desktop:pr-1">
+          <div className="flex min-h-[86px] w-full flex-col items-start gap-4 rounded-2xl border border-[#E4E4E7] bg-white p-4 tablet:flex-row tablet:items-center tablet:justify-between desktop:max-w-[681px]">
+            <div className="min-w-0 w-full tablet:w-auto">
+              <h2 className="text-lg font-bold leading-7 text-[#18181B]">
+                Select number of campers
+              </h2>
 
-          {/* 1. Camper Count Selector */}
-          <div className="w-full rounded-2xl border border-[#E4E4E7] bg-white p-4 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-            <div>
-              <h2 className="text-lg font-bold text-zinc-900 tracking-tight leading-6">Select number of campers</h2>
-              <p className="text-sm text-zinc-500 mt-0.5">How many attendees are you registering in this batch?</p>
+              <p className="text-sm leading-5 text-[#71717A]">
+                How many attendees are you registering in this batch?
+              </p>
             </div>
 
-            <div className="flex items-center gap-2 self-end sm:self-auto">
+            <div className="flex shrink-0 items-center gap-2">
               <button
                 type="button"
-                onClick={decrementCount}
+                aria-label="Remove one camper"
                 disabled={camperCount <= 1}
-                className="h-9 w-9 rounded-md bg-[#18181B] hover:bg-zinc-800 disabled:opacity-40 disabled:hover:bg-[#18181B] text-white flex items-center justify-center transition cursor-pointer disabled:cursor-not-allowed"
-                aria-label="Decrease camper count"
+                onClick={removeLastCamper}
+                className="flex h-9 w-9 items-center justify-center rounded-md bg-[#18181B] text-white transition hover:scale-[1.03] hover:bg-zinc-700 active:scale-100 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:scale-100"
               >
-                <Minus className="h-4 w-4" />
+                <Minus size={16} />
               </button>
-              <div className="h-9 min-w-9 px-3 flex items-center justify-center border border-[#E4E4E7] rounded-md bg-white text-base font-medium text-zinc-900">
+
+              <span
+                aria-live="polite"
+                className="flex h-9 min-w-9 items-center justify-center rounded-md border border-[#E4E4E7] bg-white px-2 text-base font-medium text-[#18181B]"
+              >
                 {camperCount}
-              </div>
+              </span>
+
               <button
                 type="button"
-                onClick={incrementCount}
-                className="h-9 w-9 rounded-md bg-[#18181B] hover:bg-zinc-800 text-white flex items-center justify-center transition cursor-pointer"
-                aria-label="Increase camper count"
+                aria-label="Add one camper"
+                onClick={addCamper}
+                className="flex h-9 w-9 items-center justify-center rounded-md bg-[#18181B] text-white shadow-sm transition hover:scale-[1.03] hover:bg-zinc-700 active:scale-100"
               >
-                <Plus className="h-4 w-4" />
+                <Plus size={16} />
               </button>
             </div>
           </div>
 
-          {/* 2. Dynamic Camper Forms */}
           {campers.map((camper, index) => (
-            <div key={camper.id} className="w-full rounded-2xl border border-[#E4E4E7] bg-white p-4 space-y-4 relative">
-
-              {/* Header with Camper numbering */}
-              <div className="flex items-start justify-between gap-4">
-                <div>
-                  <h3 className="text-lg font-bold text-zinc-900 tracking-tight leading-6">Camper details</h3>
-                  <p className="text-sm text-zinc-500 mt-0.5">Fill in your details as per your legal documents</p>
-                </div>
-                <div className="flex items-center gap-2">
-                  <span className="text-sm font-medium text-[#F05922]">
-                    Camper {index + 1}/{camperCount}
-                  </span>
-                  {camperCount > 1 && index > 0 && (
-                    <button
-                      type="button"
-                      onClick={() => removeCamper(camper.id)}
-                      className="size-8 flex items-center justify-center rounded-md border border-[#E4E4E7] text-zinc-400 hover:text-red-500 hover:border-zinc-400 transition cursor-pointer"
-                      title="Remove camper"
-                    >
-                      <Trash2 className="h-4 w-4" />
-                    </button>
-                  )}
-                </div>
-              </div>
-
-              {/* Personal Details Row 1 */}
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-3 md:gap-4">
-                <div className="space-y-1">
-                  <Label className="text-sm font-medium text-zinc-900 block">First name</Label>
-                  <Input
-                    value={camper.firstName}
-                    onChange={(e) => updateCamper(camper.id, "firstName", e.target.value)}
-                    className="bg-[#F9FAFB] border-[#E4E4E7] h-9 rounded-md text-sm px-3 focus-visible:ring-1 focus-visible:ring-zinc-400"
-                  />
-                </div>
-                <div className="space-y-1">
-                  <Label className="text-sm font-medium text-zinc-900 block">Last name</Label>
-                  <Input
-                    value={camper.lastName}
-                    onChange={(e) => updateCamper(camper.id, "lastName", e.target.value)}
-                    className="bg-[#F9FAFB] border-[#E4E4E7] h-9 rounded-md text-sm px-3 focus-visible:ring-1 focus-visible:ring-zinc-400"
-                  />
-                </div>
-                <div className="space-y-1">
-                  <Label className="text-sm font-medium text-zinc-900 block">Age</Label>
-                  <Select value={camper.age} onValueChange={(val) => updateCamper(camper.id, "age", val || "")}>
-                    <SelectTrigger className="w-full bg-[#F9FAFB] border-[#E4E4E7] h-9 rounded-md text-sm text-zinc-800 focus:ring-0 focus:ring-offset-0">
-                      <SelectValue placeholder="" />
-                    </SelectTrigger>
-                    <SelectContent className="max-h-60 overflow-y-auto bg-white border border-[#E4E4E7] shadow-lg rounded-xl">
-                      {ageOptions.map((age) => (
-                        <SelectItem key={age} value={age}>
-                          {age}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-              </div>
-
-              {/* Personal Details Row 2 */}
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-3 md:gap-4">
-                <div className="space-y-1">
-                  <Label className="text-sm font-medium text-zinc-900 block">Gender</Label>
-                  <div className="flex gap-2 h-9">
-                    <button
-                      type="button"
-                      onClick={() => updateCamper(camper.id, "gender", "male")}
-                      className={`flex-1 h-9 rounded-md text-sm font-medium transition cursor-pointer border ${camper.gender === "male"
-                        ? "bg-[#18181B] text-white border-[#18181B]"
-                        : "bg-white text-zinc-800 border-[#E4E4E7] hover:bg-zinc-50"
-                        }`}
-                    >
-                      Male
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => updateCamper(camper.id, "gender", "female")}
-                      className={`flex-1 h-9 rounded-md text-sm font-medium transition cursor-pointer border ${camper.gender === "female"
-                        ? "bg-[#18181B] text-white border-[#18181B]"
-                        : "bg-white text-zinc-800 border-[#E4E4E7] hover:bg-zinc-50"
-                        }`}
-                    >
-                      Female
-                    </button>
-                  </div>
-                </div>
-
-                <div className="space-y-1">
-                  <Label className="text-sm font-medium text-zinc-900 block">Phone number</Label>
-                  <Input
-                    type="tel"
-                    value={camper.phone}
-                    onChange={(e) => updateCamper(camper.id, "phone", e.target.value)}
-                    className="bg-[#F9FAFB] border-[#E4E4E7] h-9 rounded-md text-sm px-3 w-full focus-visible:ring-1 focus-visible:ring-zinc-400"
-                  />
-                </div>
-
-                <div className="space-y-1">
-                  <Label className="text-sm font-medium text-zinc-900 block">Want to be baptised?</Label>
-                  <div className="flex gap-2 h-9 items-center">
-                    <button
-                      type="button"
-                      onClick={() => updateCamper(camper.id, "baptised", "yes")}
-                      className={`w-[55px] shrink-0 h-9 rounded-md text-sm font-medium transition cursor-pointer border ${camper.baptised === "yes"
-                        ? "bg-[#18181B] text-white border-[#18181B]"
-                        : "bg-white text-zinc-800 border-[#E4E4E7] hover:bg-zinc-50"
-                        }`}
-                    >
-                      Yes
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => updateCamper(camper.id, "baptised", "no")}
-                      className={`w-[51px] shrink-0 h-9 rounded-md text-sm font-medium transition cursor-pointer border ${camper.baptised === "no"
-                        ? "bg-[#18181B] text-white border-[#18181B]"
-                        : "bg-white text-zinc-800 border-[#E4E4E7] hover:bg-zinc-50"
-                        }`}
-                    >
-                      No
-                    </button>
-                  </div>
-                </div>
-              </div>
-
-              {/* Church Campus Section */}
-              <div className="space-y-3 pt-1">
-                <div>
-                  <h4 className="text-base font-bold text-zinc-900 tracking-tight leading-5">Church campus</h4>
-                  <p className="text-sm text-zinc-500 mt-0.5">Drives the campus and network breakdowns</p>
-                </div>
-
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-3 md:gap-4">
-                  <div className="space-y-1">
-                    <Label className="text-sm font-medium text-zinc-900 block">Are you from Mavuno?</Label>
-                    <div className="flex gap-2 h-9 items-center">
-                      <button
-                        type="button"
-                        onClick={() => updateCamper(camper.id, "isFromMavuno", "yes")}
-                        className={`w-[55px] shrink-0 h-9 rounded-md text-sm font-medium transition cursor-pointer border ${camper.isFromMavuno === "yes"
-                          ? "bg-[#18181B] text-white border-[#18181B]"
-                          : "bg-white text-zinc-800 border-[#E4E4E7] hover:bg-zinc-50"
-                          }`}
-                      >
-                        Yes
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => updateCamper(camper.id, "isFromMavuno", "no")}
-                        className={`w-[51px] shrink-0 h-9 rounded-md text-sm font-medium transition cursor-pointer border ${camper.isFromMavuno === "no"
-                          ? "bg-[#18181B] text-white border-[#18181B]"
-                          : "bg-white text-zinc-800 border-[#E4E4E7] hover:bg-zinc-50"
-                          }`}
-                      >
-                        No
-                      </button>
-                    </div>
-                  </div>
-
-                  <div className="space-y-1 md:col-span-2">
-                    <Label className="text-sm font-medium text-zinc-900 block">
-                      {camper.isFromMavuno === "no" ? "Other church" : "Select campus"}
-                    </Label>
-                    {camper.isFromMavuno === "no" ? (
-                      <Input
-                        value={camper.churchName}
-                        onChange={(e) => updateCamper(camper.id, "churchName", e.target.value)}
-                        placeholder="Enter church name"
-                        className="w-[200px] bg-[#F9FAFB] border-[#E4E4E7] h-9 rounded-md text-sm px-3 focus-visible:ring-1 focus-visible:ring-zinc-400"
-                      />
-                    ) : (
-                      <Select value={camper.campus} onValueChange={(val) => updateCamper(camper.id, "campus", val)}>
-                        <SelectTrigger className="w-[200px] bg-[#F9FAFB] border-[#E4E4E7] h-9 rounded-md text-sm text-zinc-800 focus:ring-0 focus:ring-offset-0">
-                          <SelectValue placeholder={isLoadingCampuses ? "Loading campuses..." : ""} />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {campuses.map((c) => (
-                            <SelectItem key={c.id} value={c.id}>
-                              {c.name}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    )}
-                  </div>
-                </div>
-              </div>
-
-              {/* Medical and special needs Section */}
-              <div className="space-y-2.5 pt-1">
-                <div>
-                  <h4 className="text-base font-bold text-zinc-900 tracking-tight leading-5">Medical and special needs</h4>
-                </div>
-
-                <div className="space-y-2.5">
-                  {/* Option 1: Medical condition */}
-                  <div
-                    onClick={() => updateCamper(camper.id, 'hasMedical', !camper.hasMedical)}
-                    className="rounded-xl border border-[#E4E4E7] bg-[#F9FAFB] p-3 cursor-pointer hover:border-zinc-300 transition-colors"
-                  >
-                    <div className="flex items-start gap-3">
-                      <div className={`w-4.5 h-4.5 rounded-full border flex items-center justify-center mt-0.5 shrink-0 transition-colors ${camper.hasMedical ? "border-[#18181B] bg-white" : "border-[#E4E4E7] bg-white shadow-sm"
-                        }`}>
-                        {camper.hasMedical && <div className="w-2 h-2 rounded-full bg-[#18181B]" />}
-                      </div>
-                      <div className="space-y-0.5">
-                        <p className="text-sm font-medium text-zinc-900 leading-tight">
-                          Medical condition / Severe allergies
-                        </p>
-                        <p className="text-xs text-zinc-500 leading-normal">
-                          Check if this camper has acute health conditions requiring medical staff awareness.
-                        </p>
-                      </div>
-                    </div>
-                    {camper.hasMedical && (
-                      <div className="mt-3.5 space-y-1.5" onClick={(e) => e.stopPropagation()}>
-                        <label className="text-sm font-semibold text-zinc-900 block">
-                          Specify medical condition (15 words)
-                        </label>
-                        <textarea
-                          rows={3}
-                          placeholder="e.g Asthma, Peanuts allergy, Epilepsy, Diabetes"
-                          value={camper.medicalDetails}
-                          onChange={(e) => updateCamper(camper.id, 'medicalDetails', e.target.value)}
-                          className="w-full rounded-lg border border-[#E4E4E7] bg-white p-2.5 text-sm text-zinc-900 placeholder:text-zinc-400 focus:outline-none focus:ring-1 focus:ring-zinc-400 resize-none h-[78px]"
-                        />
-                      </div>
-                    )}
-                  </div>
-
-                  {/* Option 2: Special needs */}
-                  <div
-                    onClick={() => updateCamper(camper.id, 'hasSpecialNeeds', !camper.hasSpecialNeeds)}
-                    className="rounded-xl border border-[#E4E4E7] bg-[#F9FAFB] p-3 cursor-pointer hover:border-zinc-300 transition-colors"
-                  >
-                    <div className="flex items-start gap-3">
-                      <div className={`w-4.5 h-4.5 rounded-full border flex items-center justify-center mt-0.5 shrink-0 transition-colors ${camper.hasSpecialNeeds ? "border-[#18181B] bg-white" : "border-[#E4E4E7] bg-white shadow-sm"
-                        }`}>
-                        {camper.hasSpecialNeeds && <div className="w-2 h-2 rounded-full bg-[#18181B]" />}
-                      </div>
-                      <div className="space-y-0.5">
-                        <p className="text-sm font-medium text-zinc-900 leading-tight">
-                          Special needs / Accessibility support
-                        </p>
-                        <p className="text-xs text-zinc-500 leading-normal">
-                          Check if this camper requires physical, sensory, or mobility accommodations.
-                        </p>
-                      </div>
-                    </div>
-                    {camper.hasSpecialNeeds && (
-                      <div className="mt-3.5 space-y-1.5" onClick={(e) => e.stopPropagation()}>
-                        <label className="text-sm font-semibold text-zinc-900 block">
-                          Specify special needs and accommodations (15 words)
-                        </label>
-                        <textarea
-                          rows={3}
-                          placeholder="e.g Deaf, Autism spectrum, Anxiety"
-                          value={camper.specialNeedsDetails}
-                          onChange={(e) => updateCamper(camper.id, 'specialNeedsDetails', e.target.value)}
-                          className="w-full rounded-lg border border-[#E4E4E7] bg-white p-2.5 text-sm text-zinc-900 placeholder:text-zinc-400 focus:outline-none focus:ring-1 focus:ring-zinc-400 resize-none h-[78px]"
-                        />
-                      </div>
-                    )}
-                  </div>
-                </div>
-              </div>
-
+            <div
+              key={camper.id}
+              className="w-full rounded-2xl border border-[#E4E4E7] bg-white p-4 desktop:max-w-[681px]"
+            >
+              <CamperDetailsFrame
+                camper={camper}
+                index={index}
+                total={camperCount}
+                onUpdate={(patch) => updateCamper(camper.id, patch)}
+                onRemove={
+                  index > 0 ? () => removeCamper(camper.id) : undefined
+                }
+                showFieldErrors={validationAttempted}
+                fieldErrors={camperErrorsById[camper.id]}
+                ageShowError={shouldShowMyaAgeError(camper)}
+                fieldErrorMessages={
+                  shouldShowMyaAgeError(camper)
+                    ? { age: myaAgeFieldMessage(camper.age) }
+                    : undefined
+                }
+                ageInput="text"
+                ageDigitsOnly
+                onAgeBlur={() => markAgeBlurred(camper.id)}
+                registrationFieldId={myaRegistrationFieldId}
+              />
             </div>
           ))}
 
-          {/* 3. Emergency Contact Card */}
-          <div className="w-full rounded-2xl border border-[#E4E4E7] bg-white p-4 space-y-4">
-            <div>
-              <h3 className="text-lg font-bold text-zinc-900 tracking-tight leading-6">Emergency contact</h3>
-              <p className="text-sm text-zinc-500 mt-0.5">Held in case of an emergency on site</p>
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-3 md:gap-4">
-              <div className="space-y-1">
-                <Label className="text-sm font-medium text-zinc-900 block">Contact first name</Label>
-                <Input
-                  value={gFirstName}
-                  onChange={(e) => setGFirstName(e.target.value)}
-                  className="bg-[#F9FAFB] border-[#E4E4E7] h-9 rounded-md text-sm px-3 focus-visible:ring-1 focus-visible:ring-zinc-400"
-                />
+          <div className="w-full rounded-2xl border border-[#E4E4E7] bg-white p-4 desktop:max-w-[681px]">
+            <div className="flex flex-col gap-4">
+              <div className="flex w-full flex-col gap-1 desktop:max-w-[646.5px]">
+                <h2 className="text-lg font-bold leading-7 text-[#18181B]">
+                  Emergency contact
+                </h2>
+                <p className="text-sm font-normal leading-5 text-[#71717A]">
+                  Held in case of an emergency on site
+                </p>
               </div>
-              <div className="space-y-1">
-                <Label className="text-sm font-medium text-zinc-900 block">Contact last name</Label>
-                <Input
-                  value={gLastName}
-                  onChange={(e) => setGLastName(e.target.value)}
-                  className="bg-[#F9FAFB] border-[#E4E4E7] h-9 rounded-md text-sm px-3 focus-visible:ring-1 focus-visible:ring-zinc-400"
-                />
+
+              <div className="grid w-full grid-cols-2 gap-4 tablet:grid-cols-3 desktop:max-w-[646.5px]">
+                <label
+                  id={myaEmergencyFieldId("guardianFirstName")}
+                  className="flex min-w-0 flex-col gap-2"
+                >
+                  <span className="text-sm font-medium leading-5 text-[#18181B]">
+                    Contact first name
+                  </span>
+                  <input
+                    type="text"
+                    className={registerFieldInputClasses(
+                      showEmergencyError("guardianFirstName")
+                    )}
+                    value={emergency.guardianFirstName}
+                    onChange={(e) =>
+                      setEmergency((prev) => ({
+                        ...prev,
+                        guardianFirstName: e.target.value,
+                      }))
+                    }
+                  />
+                  <FieldError show={showEmergencyError("guardianFirstName")} />
+                </label>
+                <label
+                  id={myaEmergencyFieldId("guardianLastName")}
+                  className="flex min-w-0 flex-col gap-2"
+                >
+                  <span className="text-sm font-medium leading-5 text-[#18181B]">
+                    Contact last name
+                  </span>
+                  <input
+                    type="text"
+                    className={registerFieldInputClasses(
+                      showEmergencyError("guardianLastName")
+                    )}
+                    value={emergency.guardianLastName}
+                    onChange={(e) =>
+                      setEmergency((prev) => ({
+                        ...prev,
+                        guardianLastName: e.target.value,
+                      }))
+                    }
+                  />
+                  <FieldError show={showEmergencyError("guardianLastName")} />
+                </label>
+                <label
+                  id={myaEmergencyFieldId("guardianPhone")}
+                  className="col-span-2 flex min-w-0 flex-col gap-2 tablet:col-span-1"
+                >
+                  <span className="text-sm font-medium leading-5 text-[#18181B]">
+                    Phone number
+                  </span>
+                  <input
+                    type="tel"
+                    inputMode="tel"
+                    autoComplete="tel"
+                    className={registerFieldInputClasses(
+                      showEmergencyError("guardianPhone")
+                    )}
+                    value={emergency.guardianPhone}
+                    onChange={(e) =>
+                      setEmergency((prev) => ({
+                        ...prev,
+                        guardianPhone: e.target.value,
+                      }))
+                    }
+                  />
+                  <FieldError
+                    show={showEmergencyError("guardianPhone")}
+                    message={
+                      showEmergencyError("guardianPhone")
+                        ? emergency.guardianPhone.trim()
+                          ? PHONE_FORMAT_ERROR_MESSAGE
+                          : FIELD_ERROR_MESSAGE
+                        : undefined
+                    }
+                  />
+                </label>
               </div>
-              <div className="space-y-1">
-                <Label className="text-sm font-medium text-zinc-900 block">Phone number</Label>
-                <Input
-                  type="tel"
-                  value={gPhone}
-                  onChange={(e) => setGPhone(e.target.value)}
-                  className="bg-[#F9FAFB] border-[#E4E4E7] h-9 rounded-md text-sm px-3 w-full focus-visible:ring-1 focus-visible:ring-zinc-400"
-                />
-              </div>
-            </div>
 
-            <div className="space-y-1">
-              <Label className="text-sm font-medium text-zinc-900 block">Relationship to camper(s)</Label>
-              <Select value={relationship} onValueChange={(val) => setRelationship(val || "")}>
-                <SelectTrigger className="w-full bg-[#F9FAFB] border-[#E4E4E7] h-9 rounded-md text-sm text-zinc-800 focus:ring-0 focus:ring-offset-0">
-                  <SelectValue placeholder="" />
-                </SelectTrigger>
-                <SelectContent className="bg-[#F9FAFB] border border-[#E4E4E7] rounded-2xl p-1.5 shadow-xl min-w-[240px]">
-                  <SelectItem value="Parent" className="px-3 py-2 text-sm text-zinc-900 rounded-lg cursor-pointer hover:bg-zinc-100 transition-colors">
-                    Parent
-                  </SelectItem>
-                  <SelectItem value="Legal Guardian" className="px-3 py-2 text-sm text-zinc-900 rounded-lg cursor-pointer hover:bg-zinc-100 transition-colors">
-                    Legal Guardian
-                  </SelectItem>
-                  <SelectItem value="Sibling" className="px-3 py-2 text-sm text-zinc-900 rounded-lg cursor-pointer hover:bg-zinc-100 transition-colors">
-                    Sibling
-                  </SelectItem>
-                  <SelectItem value="Relative" className="px-3 py-2 text-sm text-zinc-900 rounded-lg cursor-pointer hover:bg-zinc-100 transition-colors">
-                    Relative
-                  </SelectItem>
-                  <SelectItem value="Other" className="px-3 py-2 text-sm text-zinc-900 rounded-lg cursor-pointer hover:bg-zinc-100 transition-colors">
-                    Other
-                  </SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-          </div>
-
-          {/* 4. Payment Section Card */}
-          <div className="w-full rounded-2xl border border-[#E4E4E7] bg-white p-4 space-y-3.5">
-            <div>
-              <h3 className="text-lg font-bold text-zinc-900 tracking-tight leading-6">Payment</h3>
-              <p className="text-sm text-zinc-500 mt-0.5">Finish your registration by sending payment via M-Pesa. You'll get a confirmation code via SMS.</p>
-            </div>
-
-            {/* Total Due Banner */}
-            <div className="bg-[#F9F9F9] rounded-lg py-3 px-4 text-center space-y-0.5">
-              <p className="text-sm text-zinc-500 font-normal leading-tight">Total amount due</p>
-              <p className="text-2xl sm:text-3xl font-bold text-[#F05922] tracking-tight">
-                Ksh {totalAmount.toLocaleString()}
-              </p>
-              <p className="text-sm text-zinc-500 font-normal leading-tight">
-                for {camperCount} participant{camperCount > 1 ? 's' : ''}
-              </p>
-            </div>
-
-            {/* Paybill & Account Info Banner */}
-            <div className="bg-[#F9F9F9] rounded-lg py-2.5 px-4 flex items-center justify-around text-center">
-              <div>
-                <p className="text-sm font-medium text-zinc-900 leading-tight">Paybill number</p>
-                <p className="text-sm font-semibold text-[#F05922] mt-0.5">400200</p>
-              </div>
-              <div>
-                <p className="text-sm font-medium text-zinc-900 leading-tight">Account name</p>
-                <p className="text-sm font-semibold text-[#F05922] mt-0.5">CAMPFEARLESS</p>
-              </div>
-            </div>
-
-            {/* M-Pesa Code Input */}
-            <div className="space-y-1">
-              <Label className="text-sm font-medium text-zinc-900 block">M-Pesa confirmation code</Label>
-              <Input
-                value={mpesaCode}
-                onChange={(e) => setMpesaCode(e.target.value.toUpperCase())}
-                placeholder="e.g UINKH7FJWL"
-                className="bg-[#F9FAFB] border-[#E4E4E7] rounded-md h-9 text-sm px-3 uppercase placeholder:normal-case placeholder:text-zinc-400 focus-visible:ring-1 focus-visible:ring-zinc-400"
-              />
-            </div>
-
-            {/* Submit Button */}
-            <div className="pt-1">
-              <Button
-                onClick={handleSubmit}
-                disabled={!isFormValid() || isSubmitting}
-                className="w-full h-10 rounded-md bg-[#18181B] hover:bg-zinc-800 text-white text-sm font-medium transition disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
+              <label
+                id={myaEmergencyFieldId("relationship")}
+                className="flex w-full flex-col gap-2 desktop:max-w-[646.5px]"
               >
-                {isSubmitting ? "Completing registration..." : "Complete registration"}
-              </Button>
+                <span className="text-sm font-medium leading-5 text-[#18181B]">
+                  Relationship to camper(s)
+                </span>
+                <div className="relative">
+                  <select
+                    className={cn(
+                      registerFieldInputClasses(
+                        showEmergencyError("relationship")
+                      ),
+                      "appearance-none pr-11"
+                    )}
+                    value={emergency.relationship}
+                    onChange={(e) =>
+                      setEmergency((prev) => ({
+                        ...prev,
+                        relationship: e.target.value,
+                      }))
+                    }
+                  >
+                    <option value="" disabled />
+                    {RELATIONSHIP_OPTIONS.map((relationship) => (
+                      <option key={relationship} value={relationship}>
+                        {relationship}
+                      </option>
+                    ))}
+                  </select>
+                  <ChevronDown
+                    className={selectChevronClass}
+                    strokeWidth={2}
+                    aria-hidden
+                  />
+                </div>
+                <FieldError show={showEmergencyError("relationship")} />
+              </label>
             </div>
           </div>
 
+          <div className="w-full rounded-2xl border border-[#E4E4E7] bg-white p-4 desktop:max-w-[681px]">
+            <div className="flex flex-col gap-4">
+              <div className="flex w-full flex-col gap-1 desktop:max-w-[646.5px]">
+                <h2 className="text-lg font-bold leading-7 text-[#18181B]">
+                  Payment
+                </h2>
+                <p className="text-sm font-normal leading-5 text-[#71717A]">
+                  Finish your registration by sending payment via M-Pesa.
+                  You&apos;ll get a confirmation code via SMS.
+                </p>
+              </div>
+
+              <div className="flex w-full flex-col items-center rounded-lg bg-[#F9F9F9] p-4 desktop:max-w-[646.5px]">
+                <div className="flex w-full max-w-[614.5px] flex-col items-center gap-2 text-center">
+                  <p className="text-sm font-normal leading-5 text-[#71717A]">
+                    Total amount due
+                  </p>
+                  <p className="text-[30px] font-bold leading-9 text-[#F05922]">
+                    Ksh {totalDue.toLocaleString("en-KE")}
+                  </p>
+                  <p className="text-sm font-normal leading-5 text-[#71717A]">
+                    for {camperCount} participant
+                    {camperCount === 1 ? "" : "s"}
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex w-full justify-center gap-4 rounded-lg bg-[#F9F9F9] p-4 desktop:max-w-[646.5px]">
+                <div className="flex w-32 flex-col items-center gap-1 text-center">
+                  <p className="text-sm font-medium leading-5 text-[#18181B]">
+                    Paybill number
+                  </p>
+                  <p className="text-sm font-semibold leading-5 text-[#F05922]">
+                    400200
+                  </p>
+                </div>
+                <div className="flex w-32 flex-col items-center gap-1 text-center">
+                  <p className="text-sm font-medium leading-5 text-[#18181B]">
+                    Account name
+                  </p>
+                  <p className="text-sm font-semibold leading-5 text-[#F05922]">
+                    CAMPFEARLESS
+                  </p>
+                </div>
+              </div>
+
+              <label
+                id={myaEmergencyFieldId("mpesaCode")}
+                className="flex w-full flex-col gap-2 desktop:max-w-[646.5px]"
+              >
+                <span className="text-sm font-medium leading-5 text-[#18181B]">
+                  M-Pesa confirmation code
+                </span>
+                <input
+                  type="text"
+                  className={registerFieldInputClasses(
+                    showEmergencyError("mpesaCode")
+                  )}
+                  placeholder="e.g UINKH7FJWL"
+                  autoComplete="off"
+                  value={mpesaCode}
+                  onChange={(e) => setMpesaCode(e.target.value)}
+                />
+                <FieldError show={showEmergencyError("mpesaCode")} />
+              </label>
+
+              <button
+                type="button"
+                onClick={handleCompleteRegistration}
+                className="flex h-9 w-full items-center justify-center rounded-[6px] bg-[#18181B] px-4 py-2 text-sm font-medium leading-5 text-[#FAFAFA] shadow-[0px_1px_2px_0px_#0000000D] transition-transform hover:scale-[1.03] hover:bg-zinc-800 active:scale-100 desktop:max-w-[646.5px]"
+              >
+                Complete registration
+              </button>
+            </div>
+          </div>
         </section>
       </div>
     </main>
-  );
+  )
 }
-

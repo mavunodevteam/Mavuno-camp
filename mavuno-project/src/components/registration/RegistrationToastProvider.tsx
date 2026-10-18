@@ -8,6 +8,7 @@ import {
 } from "react"
 import {
   RegistrationToast,
+  type RegistrationToastAction,
   type RegistrationToastItem,
   type RegistrationToastVariant,
 } from "@/components/registration/RegistrationToast"
@@ -17,6 +18,7 @@ const AUTO_DISMISS_MS = 10_000
 type ShowRegistrationToastOptions = {
   variant: RegistrationToastVariant
   message: string
+  action?: RegistrationToastAction
 }
 
 type RegistrationToastContextValue = {
@@ -34,9 +36,9 @@ export function RegistrationToastProvider({ children }: { children: ReactNode })
   }, [])
 
   const showRegistrationToast = useCallback(
-    ({ variant, message }: ShowRegistrationToastOptions) => {
+    ({ variant, message, action }: ShowRegistrationToastOptions) => {
       const id = crypto.randomUUID()
-      setToasts((prev) => [...prev, { id, variant, message }])
+      setToasts((prev) => [...prev, { id, variant, message, action }])
       window.setTimeout(() => dismissToast(id), AUTO_DISMISS_MS)
     },
     [dismissToast]
