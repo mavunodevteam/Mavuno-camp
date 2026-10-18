@@ -127,3 +127,62 @@ export async function issueExitPermit(
     throw new Error(friendlyError(error))
   }
 }
+
+export interface WaiverRow {
+  batch_id: string
+  first_name: string
+  last_name: string
+  age: number
+  gender: string
+  campus: string | null
+  camp_name: string
+  status: string
+  created_at: string
+  wants_baptism: boolean
+}
+
+export async function fetchWaivers(): Promise<WaiverRow[]> {
+  const { data, error } = await supabase
+    .from("registration_batches")
+    .select(`
+      id,
+      created_at,
+      camps (name),
+      payments!inner (status),
+      registrations (first_name, last_name, age, gender, wants_baptism, campuses(name))
+    `)
+    .eq("payments.status", "waiver_requested")
+
+  if (error) throw new Error(friendlyError(error))
+  
+  return (data ?? []).map((b: any) => {
+    const reg = b.registrations?.[0] // Safely get the first camper
+    return {
+      batch_id: b.id,
+      first_name: reg?.first_name ?? "Unknown",
+      last_name: reg?.last_name ?? "",
+      age: reg?.age ?? 0,
+      gender: reg?.gender ?? "",
+      campus: reg?.campuses?.name ?? "N/A",
+      camp_name: b.camps?.name ?? "N/A",
+      status: "pending",
+      created_at: b.created_at,
+      wants_baptism: reg?.wants_baptism ?? false,
+    }
+  })
+}
+
+export async function approveWaiver(batchId: string): Promise<void> {
+  const { error } = await supabase.rpc("approve_waiver", { p_batch_id: batchId })
+  if (error) throw new Error(friendlyError(error))
+}
+
+export async function rejectWaiver(batchId: string): Promise<void> {
+  const { error } = await supabase
+    .from("payments")
+    .update({ status: "failed" })
+    .eq("batch_id", batchId)
+    .eq("status", "waiver_requested")
+  
+  if (error) throw new Error(friendlyError(error))
+}
