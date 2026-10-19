@@ -19,12 +19,12 @@ import {
 import { myfRegistrationFieldId } from "@/lib/myfRegisterValidation"
 import { cn } from "@/lib/utils"
 
-const MYF_AGES = [13, 14, 15, 16, 17] as const
+// const MYF_AGES = [13, 14, 15, 16, 17] as const
 
 /** Temporary until campuses load from dashboard / Supabase */
-const TEMP_MAVUNO_CAMPUS_OPTIONS = [
-  { value: "hillcity-multipliers", label: "HillCity (Multipliers Network)" },
-] as const
+// const TEMP_MAVUNO_CAMPUS_OPTIONS = [
+//   { value: "hillcity-multipliers", label: "HillCity (Multipliers Network)" },
+// ] as const
 
 const genderToggleClass =
   "inline-flex h-9 items-center justify-center rounded-[6px] border border-[#E4E4E7] bg-white px-4 py-2 text-sm font-medium leading-5 text-[#18181B] transition-transform hover:scale-[1.03] active:scale-100"
@@ -115,6 +115,8 @@ type CamperDetailsFrameProps = {
   /** Show age inline error before form submit (e.g. MYA blur validation). */
   ageShowError?: boolean
   registrationFieldId?: RegistrationFieldIdFn
+  ageOptions: readonly number[]
+  campusOptions: readonly { id: string; name: string }[]
 }
 
 export function CamperDetailsFrame({
@@ -131,6 +133,8 @@ export function CamperDetailsFrame({
   onAgeBlur,
   ageShowError = false,
   registrationFieldId = myfRegistrationFieldId,
+  ageOptions,
+  campusOptions,
 }: CamperDetailsFrameProps) {
   const fieldId = registrationFieldId
   const show = (key: keyof CamperFieldErrors) =>
@@ -261,7 +265,7 @@ export function CamperDetailsFrame({
                     onChange={(e) => onUpdate({ age: e.target.value })}
                   >
                     <option value="" disabled />
-                    {MYF_AGES.map((age) => (
+                    {ageOptions.map((age) => (
                       <option key={age} value={String(age)}>
                         {age}
                       </option>
@@ -455,9 +459,9 @@ export function CamperDetailsFrame({
                   onChange={(e) => onUpdate({ campus: e.target.value })}
                 >
                   <option value="" disabled />
-                  {TEMP_MAVUNO_CAMPUS_OPTIONS.map((campus) => (
-                    <option key={campus.value} value={campus.value}>
-                      {campus.label}
+                  {campusOptions.map((campus) => (
+                    <option key={campus.id} value={campus.id}>
+                      {campus.name}
                     </option>
                   ))}
                 </select>

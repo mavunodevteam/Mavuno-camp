@@ -1,5 +1,13 @@
 import { useEffect, useMemo, useRef, useState } from "react"
-import { ChevronDown, Minus, Plus } from "lucide-react"
+import { CheckCircle2, ChevronDown, Minus, Plus } from "lucide-react"
+import { Link } from "react-router"
+import { toast } from "sonner"
+import { useAuth } from "@/components/AuthProvider"
+import { fetchCampByCategory, fetchCampuses } from "@/lib/api/lookups"
+import { amountDue, submitRegistration } from "@/lib/api/registration"
+import type { Relationship } from "@/lib/api/registration"
+import { ageOptions, toPersonInput } from "@/lib/registrationMapping"
+import type { Camp } from "@/lib/api/types"
 import {
   CamperDetailsFrame,
   createEmptyCamper,
@@ -40,8 +48,15 @@ const partnerIcons = [
   iconBrackets,
 ]
 
-const REGISTRATION_FEE_KES = 1000
+const MAX_CAMPERS = 10
 
+function PageMessage({ children }: { children: React.ReactNode }) {
+  return (
+    <main className="grid min-h-svh place-items-center bg-white p-6 text-center">
+      <div className="flex max-w-md flex-col items-center gap-4">{children}</div>
+    </main>
+  )
+}
 const RELATIONSHIP_OPTIONS = [
   "Parent",
   "Legal Guardian",
@@ -65,9 +80,30 @@ export default function MyfRegisterPage() {
   const [invalidScrollTick, setInvalidScrollTick] = useState(0)
   const scrollTargetFieldIdRef = useRef<string | null>(null)
 
-  const camperCount = campers.length
-  const totalDue = camperCount * REGISTRATION_FEE_KES
+  const { profile } = useAuth()
+  const [camp, setCamp] = useState<Camp | null>(null)
+  const [campLoading, setCampLoading] = useState(true)
+  const [campError, setCampError] = useState<string | null>(null)
+  const [campuses, setCampuses] = useState<{ id: string; name: string }[]>([])
+  const [submitting, setSubmitting] = useState(false)
+  const [confirmation, setConfirmation] = useState<{
+    people: number
+    amount: number
+    mpesa: string
+  } | null>(null)
 
+  useEffect(() => {
+    Promise.all([fetchCampByCategory("myf"), fetchCampuses()])
+      .then(([campResult, campusList]) => {
+        setCamp(campResult)
+        setCampuses(campusList)
+      })
+      .catch((e: Error) => setCampError(e.message))
+      .finally(() => setCampLoading(false))
+  }, [])
+
+  const camperCount = campers.length
+  const totalDue = amountDue(camp?.fee_online ?? 0, camperCount)
   const { camperErrorsById, emergencyErrors } = useMemo(() => {
     if (!validationAttempted) {
       return {
@@ -82,21 +118,56 @@ export default function MyfRegisterPage() {
     return validationAttempted && Boolean(emergencyErrors[key])
   }
 
-  function handleCompleteRegistration() {
+  async function handleCompleteRegistration() {
     setValidationAttempted(true)
     const { isValid, firstInvalidFieldId } = validateMyfRegistration(
       campers,
       emergency,
       mpesaCode
     )
-    if (isValid) {
-      // Submit when backend is wired
+    if (!isValid) {
+      if (firstInvalidFieldId) {
+        scrollTargetFieldIdRef.current = firstInvalidFieldId
+        setInvalidScrollTick((tick) => tick + 1)
+      }
       return
     }
-    if (firstInvalidFieldId) {
-      scrollTargetFieldIdRef.current = firstInvalidFieldId
-      setInvalidScrollTick((tick) => tick + 1)
+    if (!camp || submitting || profile) return
+
+    setSubmitting(true)
+    try {
+      await submitRegistration({
+        participant_type: "camper",
+        camp_id: camp.id,
+        contact_first_name: emergency.guardianFirstName,
+        contact_last_name: emergency.guardianLastName,
+        contact_phone: emergency.guardianPhone,
+        relationship: emergency.relationship as Relationship,
+        mpesa_receipt: mpesaCode,
+        waiver_requested: false,
+        campers: campers.map(toPersonInput),
+      })
+      setConfirmation({
+        people: camperCount,
+        amount: totalDue,
+        mpesa: mpesaCode.trim().toUpperCase(),
+      })
+      window.scrollTo({ top: 0 })
+    } catch (e) {
+      toast.error(
+        e instanceof Error ? e.message : "Something went wrong. Please try again."
+      )
+    } finally {
+      setSubmitting(false)
     }
+  }
+
+  function resetForm() {
+    setCampers([createEmptyCamper()])
+    setEmergency(createEmptyEmergencyContact())
+    setMpesaCode("")
+    setValidationAttempted(false)
+    setConfirmation(null)
   }
 
   useEffect(() => {
@@ -107,7 +178,9 @@ export default function MyfRegisterPage() {
   }, [invalidScrollTick])
 
   function addCamper() {
-    setCampers((prev) => [...prev, createEmptyCamper()])
+    setCampers((prev) =>
+      prev.length >= MAX_CAMPERS ? prev : [...prev, createEmptyCamper()]
+    )
   }
 
   function removeLastCamper() {
@@ -125,6 +198,75 @@ export default function MyfRegisterPage() {
       prev.map((c) => (c.id === id ? { ...c, ...patch } : c))
     )
   }
+
+  if (campLoading) {
+    return (
+      <PageMessage>
+        <p className="text-[#71717A]">Loading...</p>
+      </PageMessage>
+    )
+  }
+
+  if (campError || !camp) {
+    return (
+      <PageMessage>
+        <p className="font-semibold text-[#18181B]">
+          {campError ?? "We could not find this camp."}
+        </p>
+        <Link to="/" className="text-sm underline">Back to camp selection</Link>
+      </PageMessage>
+    )
+  }
+
+  if (!camp.registration_open) {
+    return (
+      <PageMessage>
+        <p className="font-semibold text-[#18181B]">
+          Registration for {camp.name} is closed.
+        </p>
+        <Link to="/" className="text-sm underline">Back to camp selection</Link>
+      </PageMessage>
+    )
+  }
+
+    if (confirmation) {
+    return (
+      <PageMessage>
+        <CheckCircle2 className="size-14 text-[#F05922]" aria-hidden />
+        <h1 className="text-2xl font-bold text-[#18181B]">Registration received</h1>
+        <p className="text-[#71717A]">
+          We have received your registration and M-Pesa code. Your payment will
+          be verified shortly.
+        </p>
+        <div className="w-full rounded-lg bg-[#F9F9F9] p-4 text-sm text-[#18181B]">
+          <p className="font-semibold">{camp.name}</p>
+          <p>
+            {confirmation.people} participant
+            {confirmation.people === 1 ? "" : "s"}
+          </p>
+          <p>Ksh {confirmation.amount.toLocaleString("en-KE")}</p>
+          <p>M-Pesa code: {confirmation.mpesa}</p>
+        </div>
+        <div className="flex flex-wrap justify-center gap-3">
+          <button
+            type="button"
+            onClick={resetForm}
+            className="h-9 rounded-md border border-[#E4E4E7] bg-white px-4 text-sm font-medium text-[#18181B]"
+          >
+            Register more campers
+          </button>
+          <Link
+            to="/"
+            className="flex h-9 items-center rounded-md bg-[#18181B] px-4 text-sm font-medium text-[#FAFAFA]"
+          >
+            Back to camp selection
+          </Link>
+        </div>
+      </PageMessage>
+    )
+  }
+
+  const ages = ageOptions(camp.min_age, camp.max_age)
 
   return (
     <main className="min-h-svh bg-white px-4 py-3 desktop:h-svh desktop:overflow-hidden desktop:p-4">
@@ -257,6 +399,13 @@ export default function MyfRegisterPage() {
         </section>
         {/* Right form panel: scrolls independently on desktop */}
         <section className="flex min-h-0 min-w-0 w-full flex-col gap-4 desktop:h-full desktop:overflow-y-auto desktop:overscroll-y-contain desktop:pr-1">
+          {profile && (
+            <div className="w-full rounded-2xl border border-orange-200 bg-orange-50 p-4 text-sm text-orange-900 desktop:max-w-[681px]">
+              You are signed in as staff. Use the walk-in form in the staff
+              portal to register campers at the desk, or sign out to use this
+              public form.
+            </div>
+          )}
           {/* Camper count card */}
           <div className="flex min-h-[86px] w-full flex-col items-start gap-4 rounded-2xl border border-[#E4E4E7] bg-white p-4 tablet:flex-row tablet:items-center tablet:justify-between desktop:max-w-[681px]">
             <div className="min-w-0 w-full tablet:w-auto">
@@ -290,7 +439,8 @@ export default function MyfRegisterPage() {
               <button
                 type="button"
                 aria-label="Add one camper"
-                onClick={addCamper}
+                onClick={addCamper} 
+                disabled={camperCount >= MAX_CAMPERS}
                 className="flex h-9 w-9 items-center justify-center rounded-md bg-[#18181B] text-white shadow-sm transition hover:scale-[1.03] hover:bg-zinc-700 active:scale-100"
               >
                 <Plus size={16} />
@@ -313,6 +463,8 @@ export default function MyfRegisterPage() {
                 }
                 showFieldErrors={validationAttempted}
                 fieldErrors={camperErrorsById[camper.id]}
+                ageOptions={ages}
+                campusOptions={campuses}
               />
             </div>
           ))}
@@ -518,9 +670,10 @@ export default function MyfRegisterPage() {
               <button
                 type="button"
                 onClick={handleCompleteRegistration}
-                className="flex h-9 w-full items-center justify-center rounded-[6px] bg-[#18181B] px-4 py-2 text-sm font-medium leading-5 text-[#FAFAFA] shadow-[0px_1px_2px_0px_#0000000D] transition-transform hover:scale-[1.03] hover:bg-zinc-800 active:scale-100 desktop:max-w-[646.5px]"
+                disabled={Boolean(profile) || submitting}
+                className="flex h-9 w-full items-center disabled:cursor-not-allowed disabled:opacity-50 justify-center rounded-[6px] bg-[#18181B] px-4 py-2 text-sm font-medium leading-5 text-[#FAFAFA] shadow-[0px_1px_2px_0px_#0000000D] transition-transform hover:scale-[1.03] hover:bg-zinc-800 active:scale-100 desktop:max-w-[646.5px]"
               >
-                Complete registration
+                {submitting ? "Submitting..." : "Complete registration"}
               </button>
             </div>
           </div>
