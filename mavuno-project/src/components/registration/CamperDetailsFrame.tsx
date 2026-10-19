@@ -115,8 +115,8 @@ type CamperDetailsFrameProps = {
   /** Show age inline error before form submit (e.g. MYA blur validation). */
   ageShowError?: boolean
   registrationFieldId?: RegistrationFieldIdFn
-  ageOptions: readonly number[]
-  campusOptions: readonly { id: string; name: string }[]
+  ageOptions?: readonly number[]
+  campusOptions?: readonly { id: string; name: string }[]
 }
 
 export function CamperDetailsFrame({
@@ -133,8 +133,8 @@ export function CamperDetailsFrame({
   onAgeBlur,
   ageShowError = false,
   registrationFieldId = myfRegistrationFieldId,
-  ageOptions,
-  campusOptions,
+  ageOptions = [13, 14, 15, 16, 17],
+  campusOptions = [],
 }: CamperDetailsFrameProps) {
   const fieldId = registrationFieldId
   const show = (key: keyof CamperFieldErrors) =>

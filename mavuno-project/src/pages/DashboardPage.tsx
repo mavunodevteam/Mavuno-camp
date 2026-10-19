@@ -93,7 +93,7 @@ export default function DashboardPage() {
 
     async function handleVerifyPayment(row: RosterRow) {
     try {
-      await verifyPayment(row.batch_id)
+      await verifyPayment(row.registration_id)
       toast.success("Payment marked as verified")
       reloadAll()
     } catch (e) {
@@ -103,7 +103,7 @@ export default function DashboardPage() {
 
   async function handleApproveAssistance(row: RosterRow) {
     try {
-      await approveWaiver(row.batch_id)
+      await approveWaiver(row.registration_id)
       toast.success("Financial assistance approved")
       reloadAll()
     } catch (e) {
