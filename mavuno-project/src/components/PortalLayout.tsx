@@ -19,13 +19,48 @@ import { Separator } from "@/components/ui/separator"
 import { useAuth } from "@/components/AuthProvider"
 import { signOut } from "@/lib/api/auth"
 import { titleFor, visibleSections } from "@/lib/nav"
+import { cn } from "@/lib/utils"
+import { useWalkInPaymentAside } from "@/hooks/use-walk-in-payment-aside"
 import logo from "@/assets/camp-fearless-logo.png"
+
+function PortalLayoutInset({ pathname }: { pathname: string }) {
+  const isWalkInRegistration = pathname === "/registration"
+  const paymentAside = useWalkInPaymentAside()
+  const walkInPaymentAside = isWalkInRegistration && paymentAside
+
+  return (
+    <SidebarInset className="flex min-h-0 flex-col">
+      <header className="flex h-14 shrink-0 items-center gap-2 border-b px-4 print:hidden">
+        <SidebarTrigger />
+        <Separator orientation="vertical" className="mr-2 h-4" />
+        <h1
+          className={cn(
+            "font-sans font-semibold tracking-normal",
+            isWalkInRegistration
+              ? "min-w-0 text-lg leading-6 tracking-tight tablet:text-[24px] tablet:leading-8 tablet:tracking-normal"
+              : "text-base leading-none"
+          )}
+        >
+          {titleFor(pathname)}
+        </h1>
+      </header>
+      <main
+        className={cn(
+          "flex min-h-0 flex-1 flex-col px-4 pb-4",
+          walkInPaymentAside ? "overflow-hidden" : "overflow-auto",
+          isWalkInRegistration ? "gap-4 pt-8" : "gap-4 p-4"
+        )}
+      >
+        <Outlet />
+      </main>
+    </SidebarInset>
+  )
+}
 
 export default function PortalLayout() {
   const { pathname } = useLocation()
   const navigate = useNavigate()
   const { profile } = useAuth()
-    console.log("AUTH STATE", useAuth())
 
   const sections = visibleSections(profile?.access_level)
 
@@ -84,16 +119,7 @@ export default function PortalLayout() {
         </SidebarFooter>
       </Sidebar>
 
-      <SidebarInset className="flex flex-col">
-        <header className="flex h-14 shrink-0 items-center gap-2 border-b px-4 print:hidden">
-          <SidebarTrigger />
-          <Separator orientation="vertical" className="mr-2 h-4" />
-          <h1 className="text-base font-semibold">{titleFor(pathname)}</h1>
-        </header>
-        <main className="flex flex-1 flex-col gap-4 p-4 overflow-auto">
-          <Outlet />
-        </main>
-      </SidebarInset>
+      <PortalLayoutInset pathname={pathname} />
     </SidebarProvider>
   )
 }
