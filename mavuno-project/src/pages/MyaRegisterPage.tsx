@@ -35,6 +35,14 @@ import iconRays from "@/assets/partner-icons/icon-rays.png"
 import iconRings from "@/assets/partner-icons/icon-rings.png"
 import iconSquares from "@/assets/partner-icons/icon-squares.png"
 import iconSunburst from "@/assets/partner-icons/icon-sunburst.png"
+import { Link } from "react-router"
+import { CheckCircle2 } from "lucide-react"
+import { useAuth } from "@/components/AuthProvider"
+import { fetchCampByCategory, fetchCampuses } from "@/lib/api/lookups"
+import { submitRegistration, amountDue } from "@/lib/api/registration"
+import type { Relationship } from "@/lib/api/registration"
+import { toPersonInput } from "@/lib/registrationMapping"
+import type { Camp } from "@/lib/api/types"
 
 const partnerIcons = [
   iconSquares,
@@ -73,9 +81,30 @@ export default function MyaRegisterPage() {
   )
   const [invalidScrollTick, setInvalidScrollTick] = useState(0)
   const scrollTargetFieldIdRef = useRef<string | null>(null)
+  const { profile } = useAuth()
+  const [camp, setCamp] = useState<Camp | null>(null)
+  const [campuses, setCampuses] = useState<{ id: string; name: string }[]>([])
+  const [campLoading, setCampLoading] = useState(true)
+  const [campError, setCampError] = useState<string | null>(null)
+  const [submitting, setSubmitting] = useState(false)
+  const [confirmation, setConfirmation] = useState<{
+    people: number
+    amount: number
+    mpesa: string
+  } | null>(null)
+
+  useEffect(() => {
+    Promise.all([fetchCampByCategory("mya"), fetchCampuses()])
+      .then(([campResult, campusList]) => {
+        setCamp(campResult)
+        setCampuses(campusList)
+      })
+      .catch((e: Error) => setCampError(e.message))
+      .finally(() => setCampLoading(false))
+  }, [])
 
   const camperCount = campers.length
-  const totalDue = camperCount * REGISTRATION_FEE_KES
+  const totalDue = amountDue(camp?.fee_online ?? 0, camperCount)
 
   const { camperErrorsById, emergencyErrors } = useMemo(() => {
     if (!validationAttempted) {
@@ -102,28 +131,66 @@ export default function MyaRegisterPage() {
     return validationAttempted && Boolean(emergencyErrors[key])
   }
 
-  function handleCompleteRegistration() {
+  async function handleCompleteRegistration() {
     setValidationAttempted(true)
     const { isValid, firstInvalidFieldId, hasUnder18Age } =
       validateMyaRegistration(campers, emergency, mpesaCode)
-    if (isValid) {
-      // Submit when backend is wired
+      
+    if (!isValid) {
+      if (hasUnder18Age) {
+        showRegistrationToast({
+          variant: "error",
+          message: REGISTRATION_TOAST_MESSAGES.myaAgeMismatch,
+          action: {
+            label: REGISTRATION_TOAST_MESSAGES.myfRegisterLinkLabel,
+            href: "/register/myf",
+          },
+        })
+      }
+      if (firstInvalidFieldId) {
+        scrollTargetFieldIdRef.current = firstInvalidFieldId
+        setInvalidScrollTick((tick) => tick + 1)
+      }
       return
     }
-    if (hasUnder18Age) {
+
+    if (!camp || submitting || profile) return
+
+    setSubmitting(true)
+    try {
+      await submitRegistration({
+        participant_type: "camper",
+        camp_id: camp.id,
+        contact_first_name: emergency.guardianFirstName,
+        contact_last_name: emergency.guardianLastName,
+        contact_phone: emergency.guardianPhone,
+        relationship: emergency.relationship as Relationship,
+        mpesa_receipt: mpesaCode,
+        waiver_requested: false,
+        campers: campers.map(toPersonInput),
+      })
+      setConfirmation({
+        people: camperCount,
+        amount: totalDue,
+        mpesa: mpesaCode.trim().toUpperCase(),
+      })
+      window.scrollTo({ top: 0 })
+    } catch (e) {
       showRegistrationToast({
         variant: "error",
-        message: REGISTRATION_TOAST_MESSAGES.myaAgeMismatch,
-        action: {
-          label: REGISTRATION_TOAST_MESSAGES.myfRegisterLinkLabel,
-          href: "/register/myf",
-        },
+        message: e instanceof Error ? e.message : "Something went wrong.",
       })
+    } finally {
+      setSubmitting(false)
     }
-    if (firstInvalidFieldId) {
-      scrollTargetFieldIdRef.current = firstInvalidFieldId
-      setInvalidScrollTick((tick) => tick + 1)
-    }
+  }
+
+  function resetForm() {
+    setCampers([createEmptyCamper()])
+    setEmergency(createEmptyEmergencyContact())
+    setMpesaCode("")
+    setValidationAttempted(false)
+    setConfirmation(null)
   }
 
   useEffect(() => {
@@ -150,6 +217,68 @@ export default function MyaRegisterPage() {
   function updateCamper(id: string, patch: Partial<CamperFormState>) {
     setCampers((prev) =>
       prev.map((c) => (c.id === id ? { ...c, ...patch } : c))
+    )
+  }
+
+  if (campLoading) {
+    return (
+      <main className="grid min-h-svh place-items-center bg-white p-6">
+        <p className="text-[#71717A]">Loading...</p>
+      </main>
+    )
+  }
+
+  if (campError || !camp) {
+    return (
+      <main className="grid min-h-svh place-items-center bg-white p-6 text-center">
+        <div className="flex max-w-md flex-col items-center gap-4">
+          <p className="font-semibold text-[#18181B]">
+            {campError ?? "We could not find this camp."}
+          </p>
+          <Link to="/" className="text-sm underline">Back to camp selection</Link>
+        </div>
+      </main>
+    )
+  }
+
+  if (!camp.registration_open) {
+    return (
+      <main className="grid min-h-svh place-items-center bg-white p-6 text-center">
+        <div className="flex max-w-md flex-col items-center gap-4">
+          <p className="font-semibold text-[#18181B]">
+            Registration for {camp.name} is closed.
+          </p>
+          <Link to="/" className="text-sm underline">Back to camp selection</Link>
+        </div>
+      </main>
+    )
+  }
+
+  if (confirmation) {
+    return (
+      <main className="grid min-h-svh place-items-center bg-white p-6 text-center">
+        <div className="flex max-w-md flex-col items-center gap-4">
+          <CheckCircle2 className="size-14 text-[#F05922]" aria-hidden />
+          <h1 className="text-2xl font-bold text-[#18181B]">Registration received</h1>
+          <p className="text-[#71717A]">
+            We have received your registration and M-Pesa code. Your payment will be verified shortly.
+          </p>
+          <div className="w-full rounded-lg bg-[#F9F9F9] p-4 text-sm text-[#18181B]">
+            <p className="font-semibold">{camp.name}</p>
+            <p>{confirmation.people} participant{confirmation.people === 1 ? "" : "s"}</p>
+            <p>Ksh {confirmation.amount.toLocaleString("en-KE")}</p>
+            <p>M-Pesa code: {confirmation.mpesa}</p>
+          </div>
+          <div className="flex flex-wrap justify-center gap-3">
+            <button type="button" onClick={resetForm} className="h-9 rounded-md border border-[#E4E4E7] bg-white px-4 text-sm font-medium text-[#18181B]">
+              Register more campers
+            </button>
+            <Link to="/" className="flex h-9 items-center rounded-md bg-[#18181B] px-4 text-sm font-medium text-[#FAFAFA]">
+              Back to camp selection
+            </Link>
+          </div>
+        </div>
+      </main>
     )
   }
 
@@ -331,6 +460,7 @@ export default function MyaRegisterPage() {
                 camper={camper}
                 index={index}
                 total={camperCount}
+                campusOptions={campuses}
                 onUpdate={(patch) => updateCamper(camper.id, patch)}
                 onRemove={
                   index > 0 ? () => removeCamper(camper.id) : undefined
@@ -552,9 +682,10 @@ export default function MyaRegisterPage() {
               <button
                 type="button"
                 onClick={handleCompleteRegistration}
-                className="flex h-9 w-full items-center justify-center rounded-[6px] bg-[#18181B] px-4 py-2 text-sm font-medium leading-5 text-[#FAFAFA] shadow-[0px_1px_2px_0px_#0000000D] transition-transform hover:scale-[1.03] hover:bg-zinc-800 active:scale-100 desktop:max-w-[646.5px]"
+                disabled={submitting || Boolean(profile)}
+                className="flex h-9 w-full items-center justify-center rounded-[6px] bg-[#18181B] px-4 py-2 text-sm font-medium leading-5 text-[#FAFAFA] shadow-[0px_1px_2px_0px_#0000000D] transition-transform hover:scale-[1.03] hover:bg-zinc-800 active:scale-100 disabled:cursor-not-allowed disabled:opacity-50 desktop:max-w-[646.5px]"
               >
-                Complete registration
+                {submitting ? "Submitting..." : "Complete registration"}
               </button>
             </div>
           </div>
