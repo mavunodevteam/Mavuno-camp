@@ -15,7 +15,6 @@ export type AccessLevel = "facilitator" | "head" | "admin"
 
 const RANK: Record<AccessLevel, number> = { facilitator: 0, head: 1, admin: 2 }
 
-/* True when a person's level is at least the level asked for */
 export function hasLevel(level: string | null | undefined, min: AccessLevel): boolean {
   if (!level || !(level in RANK)) return false
   return RANK[level as AccessLevel] >= RANK[min]
@@ -25,7 +24,7 @@ export interface NavItem {
   title: string
   url: string
   icon: LucideIcon
-  min: AccessLevel /* the lowest access level that sees this item */
+  min: AccessLevel
 }
 
 export interface NavSection {
@@ -33,20 +32,23 @@ export interface NavSection {
   items: NavItem[]
 }
 
-/* The whole sidebar for every role. To change who sees a page, change its min value. */
 export const NAV: NavSection[] = [
   {
-    items: [{ title: "Dashboard", url: "/dashboard", icon: LayoutDashboard, min: "facilitator" }],
+    items: [
+      { title: "Dashboard", url: "/dashboard", icon: LayoutDashboard, min: "facilitator" },
+    ],
   },
   {
     label: "Camps",
-    items: [{ title: "Camp setup", url: "/camp-setup", icon: CalendarDays, min: "admin" }],
+    items: [
+      { title: "Camp setup", url: "/camp-setup", icon: CalendarDays, min: "admin" },
+    ],
   },
   {
     label: "Registration",
     items: [
-      { title: "Reports", url: "/reports", icon: FileText, min: "facilitator" },
       { title: "Registration", url: "/registration", icon: UserPlus, min: "facilitator" },
+      { title: "Reports", url: "/reports", icon: FileText, min: "facilitator" },
       { title: "Waivers", url: "/waivers", icon: HandCoins, min: "head" },
       { title: "Payments", url: "/payments", icon: CreditCard, min: "head" },
     ],
@@ -61,7 +63,6 @@ export const NAV: NavSection[] = [
   },
 ]
 
-/* Only the sections and items this person may see, with empty sections removed */
 export function visibleSections(level: string | null | undefined): NavSection[] {
   return NAV.map((section) => ({
     ...section,
@@ -69,7 +70,6 @@ export function visibleSections(level: string | null | undefined): NavSection[] 
   })).filter((section) => section.items.length > 0)
 }
 
-/* The page title shown in the header, found from the address */
 export function titleFor(pathname: string): string {
   for (const section of NAV) {
     for (const item of section.items) {
