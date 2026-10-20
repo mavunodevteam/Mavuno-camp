@@ -117,6 +117,8 @@ type CamperDetailsFrameProps = {
   registrationFieldId?: RegistrationFieldIdFn
   ageOptions?: readonly number[]
   campusOptions?: readonly { id: string; name: string }[]
+  /** Walk-in portal: tighter widths matching the 1163px registration frame. */
+  layout?: "public" | "portal"
 }
 
 export function CamperDetailsFrame({
@@ -135,7 +137,9 @@ export function CamperDetailsFrame({
   registrationFieldId = myfRegistrationFieldId,
   ageOptions = [13, 14, 15, 16, 17],
   campusOptions = [],
+  layout = "public",
 }: CamperDetailsFrameProps) {
+  const isPortal = layout === "portal"
   const fieldId = registrationFieldId
   const show = (key: keyof CamperFieldErrors) =>
     showFieldErrors && Boolean(fieldErrors[key])
@@ -206,8 +210,18 @@ export function CamperDetailsFrame({
           </p>
         </div>
 
-        <div className="flex w-full flex-col gap-[14px] desktop:max-w-[645px]">
-          <div className="grid w-full grid-cols-2 gap-4 tablet:grid-cols-3">
+        <div
+          className={cn(
+            "flex w-full flex-col gap-[14px]",
+            !isPortal && "desktop:max-w-[645px]"
+          )}
+        >
+          <div
+            className={cn(
+              "grid w-full grid-cols-2 gap-4 tablet:grid-cols-3",
+              isPortal && "walk-in-reg-grid"
+            )}
+          >
             <label
               id={fieldId(camper.id, "firstName")}
               className="flex min-w-0 flex-col gap-2"
@@ -395,8 +409,18 @@ export function CamperDetailsFrame({
         </div>
       </div>
 
-      <div className="flex w-full flex-col gap-4 desktop:max-w-[679px]">
-        <div className="flex flex-col gap-1 desktop:max-w-[647px]">
+      <div
+        className={cn(
+          "flex w-full flex-col gap-4",
+          !isPortal && "desktop:max-w-[679px]"
+        )}
+      >
+        <div
+          className={cn(
+            "flex flex-col gap-1",
+            !isPortal && "desktop:max-w-[647px]"
+          )}
+        >
           <h2 className="text-lg font-bold leading-7 text-[#18181B]">
             Church campus
           </h2>
@@ -405,8 +429,20 @@ export function CamperDetailsFrame({
           </p>
         </div>
 
-        <div className="flex w-full flex-row gap-[14px] desktop:max-w-[647px]">
-          <div className="flex min-w-0 flex-1 flex-col gap-2 tablet:w-[205px] tablet:flex-none tablet:shrink-0">
+        <div
+          className={cn(
+            isPortal
+              ? "walk-in-reg-grid walk-in-campus-row grid w-full grid-cols-2 gap-4 tablet:grid-cols-3"
+              : "walk-in-campus-row flex w-full flex-row gap-[14px] desktop:max-w-[647px]"
+          )}
+        >
+          <div
+            className={cn(
+              "walk-in-campus-mavuno flex min-w-0 flex-col gap-2",
+              !isPortal &&
+                "walk-in-campus-field flex-1 tablet:w-[205px] tablet:flex-none tablet:shrink-0"
+            )}
+          >
             <span className="text-sm font-medium leading-5 text-[#18181B]">
               Are you from Mavuno?
             </span>
@@ -443,7 +479,12 @@ export function CamperDetailsFrame({
           </div>
           <label
             id={fieldId(camper.id, "campusOrChurch")}
-            className="flex min-w-0 flex-1 flex-col gap-2 tablet:w-[205px] tablet:flex-none tablet:shrink-0"
+            className={cn(
+              "walk-in-campus-select flex min-w-0 flex-col gap-2",
+              isPortal && "col-span-2 tablet:col-span-1 tablet:col-start-2",
+              !isPortal &&
+                "walk-in-campus-field flex-1 tablet:w-[205px] tablet:flex-none tablet:shrink-0"
+            )}
           >
             <span className="text-sm font-medium leading-5 text-[#18181B]">
               {camper.fromMavuno ? "Select campus" : "Other church"}

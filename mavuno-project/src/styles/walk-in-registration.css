@@ -1,0 +1,72 @@
+/* Walk-in portal — form frame width and container grids */
+
+.walk-in-form-frame {
+  width: 100%;
+  max-width: 1163px;
+  container-type: inline-size;
+  container-name: walk-in;
+}
+
+.walk-in-form-layout {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  width: 100%;
+  min-width: 0;
+}
+
+.walk-in-registration-page-layout {
+  width: 100%;
+  min-width: 0;
+}
+
+@media (min-width: 68.75rem) {
+  .walk-in-form-frame.walk-in-form-frame--desktop-sidebar-open {
+    max-width: 1056px;
+    margin-right: 1.5rem;
+  }
+
+  /*
+   * Title (portal header) + form frame scroll together on the left.
+   * Payment is outside the frame and does not scroll with the form.
+   */
+  .walk-in-registration-page-layout--payment-aside {
+    display: grid;
+    flex: 1;
+    min-height: 0;
+    height: 100%;
+    grid-template-columns: minmax(0, 1fr) minmax(280px, 320px);
+    align-items: start;
+    column-gap: 16px;
+  }
+
+  .walk-in-registration-form-scroll {
+    min-height: 0;
+    min-width: 0;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    padding-right: 4px;
+  }
+
+  .walk-in-registration-page-layout--payment-aside .walk-in-form-frame {
+    max-width: 1163px;
+    width: 100%;
+  }
+
+  .walk-in-registration-payment {
+    position: relative;
+    align-self: start;
+    min-width: 0;
+  }
+}
+
+/* Tablet grid (46.5rem = 744px), same as project `tablet:` breakpoint */
+@container walk-in (min-width: 46.5rem) {
+  .walk-in-reg-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .walk-in-campus-row .walk-in-campus-select {
+    grid-column: 2;
+  }
+}

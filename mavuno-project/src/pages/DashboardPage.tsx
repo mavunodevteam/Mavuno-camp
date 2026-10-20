@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react"
+import { useNavigate } from "react-router"
 import { toast } from "sonner"
 import { useAuth } from "@/components/AuthProvider"
 import { AttendanceChart } from "@/components/dashboard/AttendanceChart"
@@ -18,6 +19,7 @@ import { approveWaiver, verifyPayment } from "@/lib/api/admin"
 const PAGE_SIZE = 9
 
 export default function DashboardPage() {
+  const navigate = useNavigate()
   const { isHead } = useAuth()
 
   const [camps, setCamps] = useState<Camp[]>([])
@@ -131,7 +133,7 @@ export default function DashboardPage() {
 
       <div className="grid gap-4 lg:grid-cols-2">
         <OnlineCheckInCard campId={campId} onChecked={reloadAll} />
-        <WalkInCard onOpen={() => toast("The walk-in registration form is the next piece to build")} />
+        <WalkInCard onOpen={() => navigate("/registration")} />
       </div>
 
       <RosterTable

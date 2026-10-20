@@ -71,6 +71,9 @@ export function visibleSections(level: string | null | undefined): NavSection[] 
 }
 
 export function titleFor(pathname: string): string {
+  if (pathname === "/registration") {
+    return "Walk-in camper registration"
+  }
   for (const section of NAV) {
     for (const item of section.items) {
       if (pathname === item.url || pathname.startsWith(item.url + "/")) return item.title

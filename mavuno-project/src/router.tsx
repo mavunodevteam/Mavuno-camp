@@ -9,7 +9,7 @@ import DashboardPage from "@/pages/DashboardPage"
 import ReportsPage from "@/pages/ReportsPage"
 import PortalLayout from "@/components/PortalLayout"
 import WaiversPage from "@/pages/WaiversPage"
-// import RegistrationPage from "@/pages/RegistrationPage"
+import WalkInRegistrationPage from "@/pages/WalkInRegistrationPage"
 import PaymentsPage from "@/pages/PaymentsPage"
 import CampSetupPage from "@/pages/CampSetupPage"
 import UsersPage from "@/pages/UsersPage"
@@ -35,6 +35,7 @@ export const router = createBrowserRouter([
         element: <PortalLayout />,
         children: [
           { path: "/dashboard", element: <DashboardPage /> },
+          { path: "/registration", element: <WalkInRegistrationPage /> },
           { path: "/reports", element: <ReportsPage /> },
           { path: "/waivers", element: <WaiversPage /> },
           { path: "/payments", element: <PaymentsPage /> },
