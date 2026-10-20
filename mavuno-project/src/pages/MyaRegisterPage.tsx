@@ -53,7 +53,6 @@ const partnerIcons = [
   iconBrackets,
 ]
 
-const REGISTRATION_FEE_KES = 1000
 
 const RELATIONSHIP_OPTIONS = [
   "Parent",
