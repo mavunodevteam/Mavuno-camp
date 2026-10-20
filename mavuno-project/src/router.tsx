@@ -16,6 +16,9 @@ import UsersPage from "@/pages/UsersPage"
 import CampusesPage from "@/pages/CampusesPage"
 import AuditLogPage from "@/pages/AuditLogPage"
 // import { RequireRole } from "@/components/RequireRole"
+import ResetPasswordPage from "@/pages/ResetPasswordPage"
+import ForgotPasswordPage from "@/pages/ForgotPasswordPage"
+
 
 export const router = createBrowserRouter([
   {
@@ -26,6 +29,8 @@ export const router = createBrowserRouter([
       { path: "/register/mya", element: <MyaRegisterPage /> },
       { path: "/register-facilitator", element: <RegisterFacilitatorPage /> },
       { path: "/login", element: <LoginPage /> },
+      { path: "/reset-password", element: <ResetPasswordPage /> },
+      { path: "/forgot-password", element: <ForgotPasswordPage /> },
       {
         element: <PortalLayout />,
         children: [

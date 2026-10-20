@@ -118,9 +118,15 @@ export default function DashboardPage() {
       {dashboard.error && <p className="text-sm text-destructive">{dashboard.error}</p>}
 
       <div className="grid gap-4 lg:grid-cols-3">
-        <AttendanceChart totals={dashboard.totals} />
-        <GenderChart totals={dashboard.totals} />
-        <QuickSummary totals={dashboard.totals} loading={dashboard.loading} />
+        <div className="min-h-[320px]">
+          <AttendanceChart totals={dashboard.totals} />
+        </div>
+        <div className="min-h-[320px]">
+          <GenderChart totals={dashboard.totals} />
+        </div>
+        <div className="min-h-[320px]">
+          <QuickSummary totals={dashboard.totals} loading={dashboard.loading} />
+        </div>
       </div>
 
       <div className="grid gap-4 lg:grid-cols-2">

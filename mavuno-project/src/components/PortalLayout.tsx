@@ -25,6 +25,7 @@ export default function PortalLayout() {
   const { pathname } = useLocation()
   const navigate = useNavigate()
   const { profile } = useAuth()
+    console.log("AUTH STATE", useAuth())
 
   const sections = visibleSections(profile?.access_level)
 
@@ -83,13 +84,13 @@ export default function PortalLayout() {
         </SidebarFooter>
       </Sidebar>
 
-      <SidebarInset>
+      <SidebarInset className="flex flex-col">
         <header className="flex h-14 shrink-0 items-center gap-2 border-b px-4 print:hidden">
           <SidebarTrigger />
           <Separator orientation="vertical" className="mr-2 h-4" />
           <h1 className="text-base font-semibold">{titleFor(pathname)}</h1>
         </header>
-        <main className="flex flex-1 flex-col gap-4 p-4">
+        <main className="flex flex-1 flex-col gap-4 p-4 overflow-auto">
           <Outlet />
         </main>
       </SidebarInset>
