@@ -3,6 +3,7 @@
 @import "shadcn/tailwind.css";
 @import "@fontsource-variable/geist";
 @import "./styles/myf-register-hero.css";
+@import "./styles/walk-in-registration.css";
 
 @font-face {
     font-family: "Panton";
