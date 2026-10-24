@@ -53,6 +53,10 @@ export function friendlyError(error: unknown): string {
     return "Could not reach the server. Check your internet connection and try again."
   }
 
+    if (msg.includes('editions_name_key')) return 'An edition with that name already exists.'
+  if (msg.includes('Give the edition a name')) return 'Give the edition a name.'
+  if (msg.includes('camps_registration_window_check')) return 'Registration must close on or after the day it opens.'
+
   // Fallback: return the raw message so we're not hiding the truth
   return msg || "Something went wrong. Please try again."
 }

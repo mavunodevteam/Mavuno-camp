@@ -47,7 +47,7 @@ export const NAV: NavSection[] = [
   {
     label: "Registration",
     items: [
-      { title: "Registration", url: "/registration", icon: UserPlus, min: "facilitator" },
+      { title: "Walk-in camper registration", url: "/registration", icon: UserPlus, min: "facilitator" },
       { title: "Reports", url: "/reports", icon: FileText, min: "facilitator" },
       { title: "Waivers", url: "/waivers", icon: HandCoins, min: "head" },
       { title: "Payments", url: "/payments", icon: CreditCard, min: "head" },

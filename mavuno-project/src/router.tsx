@@ -12,12 +12,13 @@ import WaiversPage from "@/pages/WaiversPage"
 import WalkInRegistrationPage from "@/pages/WalkInRegistrationPage"
 import PaymentsPage from "@/pages/PaymentsPage"
 import CampSetupPage from "@/pages/CampSetupPage"
-import UsersPage from "@/pages/UsersPage"
 import CampusesPage from "@/pages/CampusesPage"
 import AuditLogPage from "@/pages/AuditLogPage"
 // import { RequireRole } from "@/components/RequireRole"
 import ResetPasswordPage from "@/pages/ResetPasswordPage"
 import ForgotPasswordPage from "@/pages/ForgotPasswordPage"
+import UsersPage from "@/pages/UsersAndRolesPage" 
+
 
 
 export const router = createBrowserRouter([

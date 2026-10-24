@@ -1,740 +1,271 @@
-import { useMemo, useState } from "react";
+import { useCallback, useEffect, useState } from "react"
+import { AlertCircle } from "lucide-react"
+import { toast } from "sonner"
+
+import { CampSetupCard } from "@/components/camp-setup/CampSetupCard"
+import { EditionsCard, yearFromName, type EditionRow } from "@/components/camp-setup/EditionsCard"
+import { SetupCard, type FieldSpec } from "@/components/camp-setup/SetupCard"
+import { WelcomePageCard, defaultWelcome, type WelcomeSettings } from "@/components/camp-setup/WelcomePageCard"
+import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import {
-  CalendarDays,
-  CheckCircle2,
-  CircleAlert,
-  ChevronLeft,
-  ChevronRight,
-  Copy,
-  PanelLeft,
-  Pause,
-  RefreshCw,
-} from "lucide-react";
+  closeEdition,
+  createEdition,
+  loadCampSetup,
+  renameEdition,
+  reopenEdition,
+  saveCampDetails,
+  saveFacilitatorFee,
+  saveWelcomeContent,
+  setCampPaused,
+  setCampRuns,
+  type EditionDb,
+} from "@/lib/api/campSetup"
+import { formatMoney, toCampRecord, type CampDetails, type CampRecord, type CampRow } from "@/lib/campSetup"
+import { ageLabel, formatCampRange } from "@/lib/welcome"
 
-type CampCategory = "MYF" | "MYA";
-type DateField = "campStart" | "campEnd" | "opens" | "closes";
+/* The address campers use. Set VITE_PUBLIC_SITE_URL to the deployed link, for example https://campfearless.example.com */
+const SITE_URL = (import.meta.env.VITE_PUBLIC_SITE_URL as string | undefined) ?? window.location.origin
 
-type CampForm = {
-  edition: string;
-  campStart: string;
-  campEnd: string;
-  camperLimit: string;
-  onlineFee: string;
-  walkInFee: string;
-  facilitatorFee: string;
-  registrationLink: string;
-  opens: string;
-  closes: string;
-  active: boolean;
-};
-
-type ToastMessage = {
-  type: "success" | "error";
-  message: string;
-} | null;
-
-const initialForms: Record<CampCategory, CampForm> = {
-  MYF: {
-    edition: "MYF Camp 2026",
-    campStart: "2026-12-01",
-    campEnd: "2026-12-05",
-    camperLimit: "1000",
-    onlineFee: "1000",
-    walkInFee: "2000",
-    facilitatorFee: "500",
-    registrationLink: "register.mavuno.org/myf-2026-x7k2",
-    opens: "2026-11-30",
-    closes: "2026-12-01",
-    active: true,
-  },
-  MYA: {
-    edition: "MYA Camp 2026",
-    campStart: "2026-12-01",
-    campEnd: "2026-12-05",
-    camperLimit: "1000",
-    onlineFee: "1000",
-    walkInFee: "2000",
-    facilitatorFee: "500",
-    registrationLink: "register.mavuno.org/mya-2026-x7k2",
-    opens: "2026-11-30",
-    closes: "2026-12-01",
-    active: true,
-  },
-};
-
-const dateFields: DateField[] = [
-  "campStart",
-  "campEnd",
-  "opens",
-  "closes",
-];
-
-const dateLabels: Record<DateField, string> = {
-  campStart: "Camp start",
-  campEnd: "Camp end",
-  opens: "Opens",
-  closes: "Closes",
-};
-
-function formatDate(value: string) {
-  if (!value) return "";
-  const [year, month, day] = value.split("-");
-  return `${day}/${month}/${year}`;
+function ymdToDate(value: string | null | undefined): Date | null {
+  if (!value) return null
+  const [y, m, d] = value.split("-").map(Number)
+  return new Date(y, m - 1, d)
 }
 
-function monthLabel(value: string) {
-  const date = value ? new Date(`${value}T12:00:00`) : new Date();
-  return date.toLocaleDateString("en-GB", {
-    month: "long",
-    year: "numeric",
-  });
-}
-
-function CalendarPopover({
-  value,
-  onSelect,
-}: {
-  value: string;
-  onSelect: (value: string) => void;
-}) {
-  const [visibleMonth, setVisibleMonth] = useState(() => {
-    const date = value ? new Date(`${value}T12:00:00`) : new Date();
-    return new Date(date.getFullYear(), date.getMonth(), 1);
-  });
-
-  const days = useMemo(() => {
-    const year = visibleMonth.getFullYear();
-    const month = visibleMonth.getMonth();
-    const offset = new Date(year, month, 1).getDay();
-    const count = new Date(year, month + 1, 0).getDate();
-
-    return [
-      ...Array.from({ length: offset }, () => null),
-      ...Array.from({ length: count }, (_, index) => index + 1),
-    ];
-  }, [visibleMonth]);
-
-  function moveMonth(amount: number) {
-    setVisibleMonth(
-      (current) =>
-        new Date(current.getFullYear(), current.getMonth() + amount, 1),
-    );
-  }
-
-  return (
-    <div className="absolute left-0 top-full z-30 mt-2 w-72 rounded-xl border border-gray-200 bg-white p-4 shadow-xl">
-      <div className="mb-4 flex items-center justify-between">
-        <button
-          type="button"
-          aria-label="Previous month"
-          onClick={() => moveMonth(-1)}
-          className="rounded-lg p-2 text-gray-600 hover:bg-gray-100"
-        >
-          <ChevronLeft size={17} />
-        </button>
-
-        <span className="text-sm font-semibold text-gray-900">
-          {monthLabel(
-            `${visibleMonth.getFullYear()}-${String(
-              visibleMonth.getMonth() + 1,
-            ).padStart(2, "0")}-01`,
-          )}
-        </span>
-
-        <button
-          type="button"
-          aria-label="Next month"
-          onClick={() => moveMonth(1)}
-          className="rounded-lg p-2 text-gray-600 hover:bg-gray-100"
-        >
-          <ChevronRight size={17} />
-        </button>
-      </div>
-
-      <div className="grid grid-cols-7 gap-1 text-center">
-        {["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"].map((day) => (
-          <span
-            key={day}
-            className="py-1 text-xs font-medium text-gray-400"
-          >
-            {day}
-          </span>
-        ))}
-
-        {days.map((day, index) => {
-          if (day === null) {
-            return <span key={`blank-${index}`} />;
-          }
-
-          const dateValue = `${visibleMonth.getFullYear()}-${String(
-            visibleMonth.getMonth() + 1,
-          ).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
-          const selected = dateValue === value;
-
-          return (
-            <button
-              key={dateValue}
-              type="button"
-              onClick={() => onSelect(dateValue)}
-              className={`h-9 rounded-lg text-sm transition ${
-                selected
-                  ? "bg-gray-900 font-semibold text-white"
-                  : "text-gray-700 hover:bg-gray-100"
-              }`}
-            >
-              {day}
-            </button>
-          );
-        })}
-      </div>
-    </div>
-  );
-}
-
-function Toast({
-  toast,
-  onClose,
-}: {
-  toast: ToastMessage;
-  onClose: () => void;
-}) {
-  if (!toast) return null;
-
-  const success = toast.type === "success";
-
-  return (
-    <div
-      role="status"
-      aria-live="polite"
-      className={`fixed right-5 top-5 z-50 flex max-w-md items-start gap-3 rounded-xl border p-4 shadow-lg ${
-        success
-          ? "border-green-100 bg-[#ECFDF5] text-green-900"
-          : "border-red-100 bg-[#FEF2F2] text-red-900"
-      }`}
-    >
-      {success ? (
-        <CheckCircle2 className="mt-0.5 shrink-0 text-green-600" size={20} />
-      ) : (
-        <CircleAlert className="mt-0.5 shrink-0 text-red-600" size={20} />
-      )}
-
-      <p className="flex-1 text-sm leading-5">{toast.message}</p>
-
-      <button
-        type="button"
-        aria-label="Dismiss notification"
-        onClick={onClose}
-        className="rounded p-1 opacity-60 hover:opacity-100"
-      >
-        ×
-      </button>
-    </div>
-  );
-}
-
-function Field({
-  label,
-  value,
-  onChange,
-  error,
-  type = "text",
-  readOnly = false,
-  suffix,
-}: {
-  label: string;
-  value: string;
-  onChange?: (value: string) => void;
-  error?: boolean;
-  type?: string;
-  readOnly?: boolean;
-  suffix?: React.ReactNode;
-}) {
-  return (
-    <label className="block min-w-0">
-      <span className="mb-1.5 block text-sm font-medium text-gray-700">
-        {label}
-      </span>
-      <span className="relative block">
-        <input
-          type={type}
-          value={value}
-          readOnly={readOnly}
-          onChange={(event) => onChange?.(event.target.value)}
-          aria-invalid={error || undefined}
-          className={`h-10 w-full rounded-lg border bg-white px-3 text-sm text-gray-900 outline-none transition placeholder:text-gray-400 focus:border-gray-500 focus:ring-2 focus:ring-gray-100 ${
-            error ? "border-red-500" : "border-gray-200"
-          } ${suffix ? "pr-10" : ""} ${
-            readOnly ? "bg-gray-50 text-gray-600" : ""
-          }`}
-        />
-        {suffix && (
-          <span className="absolute inset-y-0 right-3 flex items-center text-gray-400">
-            {suffix}
-          </span>
-        )}
-      </span>
-      {error && (
-        <span className="mt-1 block text-xs text-[#DC2626]">
-          This field needs to be filled
-        </span>
-      )}
-    </label>
-  );
-}
-
-function DateFieldInput({
-  field,
-  value,
-  onChange,
-  error,
-  open,
-  onToggle,
-  onSelect,
-}: {
-  field: DateField;
-  value: string;
-  onChange: (value: string) => void;
-  error: boolean;
-  open: boolean;
-  onToggle: () => void;
-  onSelect: (value: string) => void;
-}) {
-  return (
-    <div className="relative min-w-0">
-      <span className="mb-1.5 block text-sm font-medium text-gray-700">
-        {dateLabels[field]}
-      </span>
-      <button
-        type="button"
-        onClick={onToggle}
-        aria-expanded={open}
-        className={`flex h-10 w-full items-center justify-between rounded-lg border bg-white px-3 text-left text-sm outline-none hover:border-gray-400 focus:ring-2 focus:ring-gray-100 ${
-          error ? "border-red-500" : "border-gray-200"
-        }`}
-      >
-        <span className={value ? "text-gray-900" : "text-gray-400"}>
-          {formatDate(value) || "DD/MM/YYYY"}
-        </span>
-        <CalendarDays size={16} className="shrink-0 text-gray-400" />
-      </button>
-
-      {error && (
-        <span className="mt-1 block text-xs text-[#DC2626]">
-          This field needs to be filled
-        </span>
-      )}
-
-      {open && (
-        <CalendarPopover
-          value={value}
-          onSelect={(date) => {
-            onChange(date);
-            onSelect(date);
-          }}
-        />
-      )}
-    </div>
-  );
-}
-
-function CampCard({
-  category,
-  form,
-  setForm,
-  onToast,
-}: {
-  category: CampCategory;
-  form: CampForm;
-  setForm: (form: CampForm) => void;
-  onToast: (toast: NonNullable<ToastMessage>) => void;
-}) {
-  const [errors, setErrors] = useState<string[]>([]);
-  const [openCalendar, setOpenCalendar] = useState<DateField | null>(null);
-
-  const isMYF = category === "MYF";
-  const title = isMYF ? "MYF setup" : "MYA setup";
-  const subtitle = isMYF
-    ? "Mavuno Young and Fearless, ages 14 to 17"
-    : "Mavuno Young Adults, age 18 and above";
-
-  function update<K extends keyof CampForm>(key: K, value: CampForm[K]) {
-    setForm({ ...form, [key]: value });
-  }
-
-  function changeDate(field: DateField, value: string) {
-    update(field, value);
-    setErrors((current) => current.filter((item) => item !== field));
-    setOpenCalendar(null);
-  }
-
-  function validate() {
-    const missing: string[] = [];
-
-    if (!form.edition.trim()) missing.push("edition");
-    if (!form.camperLimit.trim()) missing.push("camperLimit");
-    if (!form.onlineFee.trim()) missing.push("onlineFee");
-    if (!form.walkInFee.trim()) missing.push("walkInFee");
-    if (!form.facilitatorFee.trim()) missing.push("facilitatorFee");
-
-    for (const field of dateFields) {
-      if (!form[field]) missing.push(field);
-    }
-
-    if (!form.registrationLink.trim()) missing.push("registrationLink");
-
-    if (missing.length > 0) {
-      setErrors(missing);
-      onToast({
-        type: "error",
-        message: "Please fill in all required fields.",
-      });
-      return false;
-    }
-
-    if (Number(form.camperLimit) < 1) {
-      setErrors(["camperLimit"]);
-      onToast({
-        type: "error",
-        message: "Camper limit must be at least 1.",
-      });
-      return false;
-    }
-
-    for (const fee of [
-      form.onlineFee,
-      form.walkInFee,
-      form.facilitatorFee,
-    ]) {
-      if (!Number.isFinite(Number(fee)) || Number(fee) < 0) {
-        onToast({
-          type: "error",
-          message: "Registration fees must be valid, non-negative amounts.",
-        });
-        return false;
-      }
-    }
-
-    if (form.campEnd <= form.campStart) {
-      onToast({
-        type: "error",
-        message: "Camp end date should be after the start date.",
-      });
-      return false;
-    }
-
-    if (form.closes < form.opens) {
-      onToast({
-        type: "error",
-        message: "Registration closing date must be on or after the opening date.",
-      });
-      return false;
-    }
-
-    if (form.opens > form.campStart || form.closes > form.campEnd) {
-      onToast({
-        type: "error",
-        message: "Registration dates must fall within the camp schedule.",
-      });
-      return false;
-    }
-
-    setErrors([]);
-    return true;
-  }
-
-  async function copyLink() {
-    try {
-      await navigator.clipboard.writeText(`https://${form.registrationLink}`);
-      onToast({ type: "success", message: "Link copied" });
-    } catch {
-      onToast({
-        type: "error",
-        message:
-          "Failed to copy link. Please try again or contact support if the issue persists.",
-      });
-    }
-  }
-
-  function regenerateLink() {
-    const suffix = Math.random().toString(36).slice(2, 6);
-    const slug = category.toLowerCase();
-    update("registrationLink", `register.mavuno.org/${slug}-2026-${suffix}`);
-    onToast({
-      type: "success",
-      message: "A new registration link has been generated in this form.",
-    });
-  }
-
-  function saveSetup() {
-    if (!validate()) return;
-
-    // Frontend prototype only: connect this handler to the verified
-    // Supabase save function before treating the setup as persisted.
-    onToast({
-      type: "success",
-      message:
-        "Camp setup successful. You are all set for camp and your spot has been secured.",
-    });
-  }
-
-  const spotsUsed = 320;
-  const limit = Math.max(1, Number(form.camperLimit) || 1);
-  const percentage = Math.min(100, (spotsUsed / limit) * 100);
-
-  return (
-    <section className="overflow-visible rounded-lg border border-[#E5E7EB] bg-white">
-      <div className="border-b border-gray-100 px-5 py-4 sm:px-6">
-        <h2 className="text-base font-semibold text-gray-900">{title}</h2>
-        <p className="mt-1 text-sm text-gray-500">{subtitle}</p>
-      </div>
-
-      <div className="grid grid-cols-1 gap-7 p-5 sm:p-6 lg:grid-cols-3 lg:gap-6">
-        <div className="space-y-4">
-          <h3 className="text-xs font-semibold uppercase tracking-wider text-gray-400">
-            Dates
-          </h3>
-
-          <Field
-            label="Edition name"
-            value={form.edition}
-            onChange={(v) => update("edition", v)}
-            error={errors.includes("edition")}
-          />
-
-          <div className="grid grid-cols-2 gap-3">
-            {(["campStart", "campEnd"] as const).map((field) => (
-              <DateFieldInput
-                key={field}
-                field={field}
-                value={form[field]}
-                onChange={(v) => update(field, v)}
-                error={errors.includes(field)}
-                open={openCalendar === field}
-                onToggle={() =>
-                  setOpenCalendar(openCalendar === field ? null : field)
-                }
-                onSelect={(v) => changeDate(field, v)}
-              />
-            ))}
-          </div>
-
-          <Field
-            label="Camper limit"
-            type="number"
-            value={form.camperLimit}
-            onChange={(v) => update("camperLimit", v)}
-            error={errors.includes("camperLimit")}
-          />
-
-          <div className="pt-1">
-            <div className="mb-2 flex items-center justify-between text-xs">
-              <span className="font-medium text-gray-600">
-                Capacity tracker
-              </span>
-              <span className="text-gray-500">
-                {Math.round(percentage)}%
-              </span>
-            </div>
-            <div
-              className="h-1.5 overflow-hidden rounded-full bg-gray-100"
-              role="progressbar"
-              aria-valuenow={Math.round(percentage)}
-              aria-valuemin={0}
-              aria-valuemax={100}
-            >
-              <div
-                className="h-full rounded-full bg-emerald-500 transition-all"
-                style={{ width: `${percentage}%` }}
-              />
-            </div>
-            <p className="mt-2 text-xs leading-5 text-gray-500">
-              {spotsUsed.toLocaleString()} of {limit.toLocaleString()} camper
-              spots used. {Math.max(0, limit - spotsUsed).toLocaleString()}{" "}
-              left. Facilitators and Waived campers are counted. Cancelled
-              registrations free up a spot.
-            </p>
-          </div>
-        </div>
-
-        <div className="space-y-4">
-          <h3 className="text-xs font-semibold uppercase tracking-wider text-gray-400">
-            Fees, full payment only
-          </h3>
-
-          <Field
-            label="Online registration"
-            type="number"
-            value={form.onlineFee}
-            onChange={(v) => update("onlineFee", v)}
-            error={errors.includes("onlineFee")}
-          />
-
-          <Field
-            label="Walk-in (desk) registration"
-            type="number"
-            value={form.walkInFee}
-            onChange={(v) => update("walkInFee", v)}
-            error={errors.includes("walkInFee")}
-          />
-
-          <Field
-            label="Facilitator registration"
-            type="number"
-            value={form.facilitatorFee}
-            onChange={(v) => update("facilitatorFee", v)}
-            error={errors.includes("facilitatorFee")}
-          />
-        </div>
-
-        <div className="space-y-4">
-          <h3 className="text-xs font-semibold uppercase tracking-wider text-gray-400">
-            Registration link
-          </h3>
-
-          <div>
-            <div className="mb-1.5 flex items-center justify-between gap-2">
-              <label className="text-sm font-medium text-gray-700">
-                Registration link
-              </label>
-              <span
-                className={`rounded-full px-2.5 py-1 text-xs font-medium ${
-                  form.active
-                    ? "bg-green-100 text-green-700"
-                    : "bg-gray-100 text-gray-600"
-                }`}
-              >
-                {form.active ? "Active" : "Paused"}
-              </span>
-            </div>
-            <div className="flex min-w-0 items-center gap-2">
-              <input
-                value={form.registrationLink}
-                readOnly
-                aria-label="Registration link"
-                className="h-10 min-w-0 flex-1 rounded-lg border border-gray-200 bg-gray-50 px-3 text-sm text-gray-600 outline-none"
-              />
-            </div>
-          </div>
-
-          <div className="grid grid-cols-2 gap-3">
-            {(["opens", "closes"] as const).map((field) => (
-              <DateFieldInput
-                key={field}
-                field={field}
-                value={form[field]}
-                onChange={(v) => update(field, v)}
-                error={errors.includes(field)}
-                open={openCalendar === field}
-                onToggle={() =>
-                  setOpenCalendar(openCalendar === field ? null : field)
-                }
-                onSelect={(v) => changeDate(field, v)}
-              />
-            ))}
-          </div>
-
-          <div className="flex flex-wrap justify-end gap-2 pt-1">
-            <button
-              type="button"
-              onClick={copyLink}
-              className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-gray-200 px-3 text-xs font-medium text-gray-700 hover:bg-gray-50"
-            >
-              <Copy size={14} />
-              Copy link
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                update("active", !form.active);
-                onToast({
-                  type: "success",
-                  message: form.active
-                    ? "Registration link paused in this form."
-                    : "Registration link activated in this form.",
-                });
-              }}
-              className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-gray-200 px-3 text-xs font-medium text-gray-700 hover:bg-gray-50"
-            >
-              <Pause size={14} />
-              {form.active ? "Pause" : "Resume"}
-            </button>
-            <button
-              type="button"
-              onClick={regenerateLink}
-              className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-gray-200 px-3 text-xs font-medium text-gray-700 hover:bg-gray-50"
-            >
-              <RefreshCw size={14} />
-              Regenerate
-            </button>
-          </div>
-        </div>
-      </div>
-
-      <footer className="flex flex-col gap-4 border-t border-gray-100 px-5 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-6">
-        <p className="max-w-xl text-xs leading-5 text-gray-500">
-          Changes here only affect {category}. Existing registrations keep the
-          fee they were charged.
-        </p>
-        <button
-          type="button"
-          onClick={saveSetup}
-          className={`inline-flex min-h-10 shrink-0 items-center justify-center gap-2 rounded-lg px-4 py-2 text-sm font-medium text-white transition hover:opacity-90 ${
-            isMYF ? "bg-[#111827]" : "bg-[#3B5998]"
-          }`}
-        >
-          <CheckCircle2 size={16} />
-          Save {category} setup
-        </button>
-      </footer>
-    </section>
-  );
-}
+const sharedFields: FieldSpec<{ facilitatorFee: number }>[] = [
+  { key: "facilitatorFee", label: "Facilitator registration", format: (v: number) => formatMoney(v) },
+]
 
 export default function CampSetupPage() {
-  const [forms, setForms] = useState(initialForms);
-  const [toast, setToast] = useState<ToastMessage>(null);
+  const [tab, setTab] = useState("editions")
+  const [editions, setEditions] = useState<EditionDb[]>([])
+  const [campRows, setCampRows] = useState<CampRow[]>([])
+  const [spots, setSpots] = useState<Record<string, number>>({})
+  const [loading, setLoading] = useState(true)
 
-  function updateForm(category: CampCategory, form: CampForm) {
-    setForms((current) => ({ ...current, [category]: form }));
+  const loadAll = useCallback(async () => {
+    try {
+      const data = await loadCampSetup()
+      setEditions(data.editions)
+      setCampRows(data.camps)
+      setSpots(data.spots)
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Failed to load camp setup")
+    } finally {
+      setLoading(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    void loadAll()
+  }, [loadAll])
+
+  /* Everything on the Camp settings tab belongs to the open edition. If none is open, the latest one is shown read only. */
+  const openEdition = editions.find((e) => e.is_open)
+  const shownEdition = openEdition ?? editions[0]
+  const closed = !openEdition
+  const camps: CampRecord[] = campRows
+    .filter((c) => c.edition_id === shownEdition?.id)
+    .map((c) => toCampRecord(c, spots[c.id] ?? 0))
+    .sort((a, b) => a.category.localeCompare(b.category) * -1)
+  const welcomeRows = campRows.filter((c) => c.edition_id === shownEdition?.id)
+
+  /* The preview needs each camp's name, ages and dates, which come from its setup */
+  const summaryFor = (category: "myf" | "mya") => {
+    const row = welcomeRows.find((r) => r.category === category)
+    return {
+      name: row?.name ?? category.toUpperCase(),
+      age: row ? ageLabel(row.min_age, row.max_age) : "",
+      dates: row ? formatCampRange(row.start_date, row.end_date) : "Dates to be announced",
+    }
+  }
+  const campSummaries = { myf: summaryFor("myf"), mya: summaryFor("mya") }
+
+  const editionRows: EditionRow[] = editions.map((e) => {
+    const own = campRows.filter((c) => c.edition_id === e.id)
+    const starts = own.map((c) => c.start_date).filter((v): v is string => !!v).sort()
+    const ends = own.map((c) => c.end_date).filter((v): v is string => !!v).sort()
+    return {
+      id: e.id,
+      name: e.name,
+      year: yearFromName(e.name),
+      open: e.is_open,
+      startDate: ymdToDate(starts[0]),
+      endDate: ymdToDate(ends[ends.length - 1]),
+    }
+  })
+
+  /* The welcome page card edits both camps at once, so it works from a combined set of values */
+  const welcome: WelcomeSettings = (() => {
+    const base = defaultWelcome()
+    for (const row of welcomeRows) {
+      const p = row.category
+      base[`${p}Description`] = row.welcome_description ?? ""
+      base[`${p}Image`] = row.welcome_image_url ?? ""
+      base[`${p}Bring`] = row.welcome_bring ?? ""
+      base[`${p}Expect`] = row.welcome_expect ?? ""
+      base[`${p}Know`] = row.welcome_know ?? ""
+    }
+    return base
+  })()
+
+  const welcomeStamp = welcomeRows
+    .filter((r) => r.welcome_updated_at)
+    .sort((a, b) => (b.welcome_updated_at as string).localeCompare(a.welcome_updated_at as string))[0]
+
+  /* Run a change, then refresh from the database. The cards show their own success and error messages. */
+  async function reload(work: () => Promise<void>) {
+    await work()
+    await loadAll()
   }
 
+  /* For switches and buttons that have no card around them, so they report for themselves */
+  async function fire(work: () => Promise<void>, success: string) {
+    try {
+      await reload(work)
+      toast.success(success)
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Something went wrong")
+    }
+  }
+
+  if (loading) return <div className="p-8 text-center text-muted-foreground">Loading camp setup...</div>
+
+  const anyDatesMissing = camps.some((c) => !c.details.startDate || !c.details.endDate || !c.details.opens || !c.details.closes)
+
   return (
-    <main className="min-h-full bg-gray-50/60 p-4 sm:p-6 lg:p-8">
-      <Toast toast={toast} onClose={() => setToast(null)} />
+    <div className="flex flex-col gap-4">
+      <Tabs value={tab} onValueChange={(v) => setTab(String(v))}>
+        <TabsList className="grid w-full max-w-md grid-cols-2">
+          <TabsTrigger value="editions">Editions</TabsTrigger>
+          <TabsTrigger value="settings">Camp settings</TabsTrigger>
+        </TabsList>
 
-      <div className="mx-auto max-w-[1500px] rounded-lg border border-[#E5E7EB] bg-white">
-        <header className="flex items-center gap-3 border-b border-gray-200 px-5 py-5 sm:px-6">
-          <button
-            type="button"
-            aria-label="Toggle sidebar"
-            onClick={() =>
-              window.dispatchEvent(new CustomEvent("toggle-sidebar"))
+        <TabsContent value="editions" className="mt-4">
+          <EditionsCard
+            editions={editionRows}
+            canEdit
+            onCreate={async (name) => {
+              await reload(() => createEdition(name))
+              setTab("settings")
+            }}
+            onRename={(id, name) => reload(() => renameEdition(id, name))}
+            onClose={(id) => reload(() => closeEdition(id))}
+            onReopen={(id) => reload(() => reopenEdition(id))}
+          />
+        </TabsContent>
+
+        <TabsContent value="settings" className="mt-4 flex flex-col gap-6">
+          {closed ? (
+            <div className="flex items-start gap-2 rounded-lg border border-orange-200 bg-orange-50 p-3 text-sm text-orange-900">
+              <AlertCircle className="mt-0.5 size-4 shrink-0" />
+              <div>
+                <strong>No open edition.</strong> These settings are read only. Go to the Editions tab and create or reopen an edition to set up the next camp.
+              </div>
+            </div>
+          ) : (
+            <p className="text-sm text-muted-foreground">
+              Everything below applies to <strong className="text-foreground">{openEdition?.name}</strong>, the open edition.
+            </p>
+          )}
+
+          {!closed && anyDatesMissing && (
+            <p className="text-sm text-muted-foreground">
+              <strong className="text-foreground">Set the dates to begin.</strong> Each camp needs its camp dates and registration window before campers can sign up.
+            </p>
+          )}
+
+          <WelcomePageCard
+            saved={welcome}
+            camps={campSummaries}
+            siteUrl={SITE_URL}
+            lastSaved={
+              welcomeStamp?.welcome_updated_at
+                ? { by: welcomeStamp.welcome_updated_by_name ?? "System", at: new Date(welcomeStamp.welcome_updated_at) }
+                : null
             }
-            className="rounded-lg p-2 text-gray-500 hover:bg-gray-100 hover:text-gray-900"
-          >
-            <PanelLeft size={20} />
-          </button>
-          <h1 className="text-xl font-bold tracking-tight text-gray-900">
-            Camp setup
-          </h1>
-        </header>
-
-        <div className="space-y-5 p-4 sm:p-6">
-          <CampCard
-            category="MYF"
-            form={forms.MYF}
-            setForm={(form) => updateForm("MYF", form)}
-            onToast={setToast}
+            canEdit={!closed}
+            onDirtyChange={() => {}}
+            onSave={(settings) =>
+              reload(async () => {
+                await saveWelcomeContent(
+                  welcomeRows.map((r) => ({ id: r.id, category: r.category })),
+                  settings
+                )
+              })
+            }
           />
 
-          <CampCard
-            category="MYA"
-            form={forms.MYA}
-            setForm={(form) => updateForm("MYA", form)}
-            onToast={setToast}
-          />
-        </div>
-      </div>
-    </main>
-  );
+          {camps.map((camp) => (
+            <CampSetupCard
+              key={camp.id}
+              camp={camp}
+              other={camps.find((c) => c.id !== camp.id)}
+              editionOpen={!closed}
+              canEdit={!closed}
+              siteUrl={SITE_URL}
+              onSave={(details: CampDetails) => reload(() => saveCampDetails(camp.id, details))}
+              onToggleRuns={(next) =>
+                void fire(() => setCampRuns(camp.id, next), next ? `${camp.category.toUpperCase()} switched on` : `${camp.category.toUpperCase()} switched off`)
+              }
+              onTogglePause={() =>
+                void fire(() => setCampPaused(camp.id, !camp.paused), camp.paused ? "Registration resumed" : "Registration paused")
+              }
+            />
+          ))}
+
+          {shownEdition && (
+            <SetupCard<{ facilitatorFee: number }>
+              title="Shared settings"
+              description="Fees that apply to both MYF and MYA."
+              saved={{ facilitatorFee: shownEdition.facilitator_fee ?? 0 }}
+              fields={sharedFields}
+              saveLabel="Save shared settings"
+              successMessage="Shared settings successfully saved"
+              canEdit={!closed}
+              onDirtyChange={() => {}}
+              lastSaved={
+                shownEdition.facilitator_fee_updated_at
+                  ? { by: shownEdition.facilitator_fee_updated_by_name ?? "System", at: new Date(shownEdition.facilitator_fee_updated_at) }
+                  : null
+              }
+              onSave={(value) => reload(() => saveFacilitatorFee(shownEdition.id, value.facilitatorFee))}
+              validate={(v) => v.facilitatorFee >= 0}
+              warnings={() => ["This fee applies to both MYF and MYA. Facilitators already registered keep what they paid."]}
+            >
+              {(settings, editing, update) => (
+                <div className="flex flex-col gap-4">
+                  <div className="grid gap-x-4 gap-y-6 md:grid-cols-2 xl:grid-cols-3">
+                    <section className="flex min-w-0 flex-col gap-4">
+                      <h3 className="-mb-2 text-sm text-muted-foreground">Fees, full payment only</h3>
+                      <div className="flex flex-col gap-2">
+                        <Label>Facilitator registration</Label>
+                        {editing ? (
+                          <div className="relative">
+                            <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-sm text-muted-foreground">KES</span>
+                            <Input
+                              inputMode="numeric"
+                              className="bg-muted/40 pl-12 tabular-nums"
+                              value={settings.facilitatorFee.toLocaleString("en-KE")}
+                              onChange={(e) => update({ facilitatorFee: Number(e.target.value.replace(/\D/g, "").slice(0, 9)) || 0 })}
+                            />
+                          </div>
+                        ) : (
+                          <div className="flex h-9 items-center rounded-md border bg-muted/20 px-3 text-sm tabular-nums">
+                            {shownEdition.facilitator_fee === null ? "Not set" : formatMoney(shownEdition.facilitator_fee)}
+                          </div>
+                        )}
+                      </div>
+                    </section>
+                  </div>
+                </div>
+              )}
+            </SetupCard>
+          )}
+        </TabsContent>
+      </Tabs>
+    </div>
+  )
 }

@@ -62,6 +62,9 @@ const RELATIONSHIP_OPTIONS = [
   "Other",
 ] as const
 
+/* No one registers more than this many people in one batch */
+const MAX_CAMPERS = 10
+
 const selectChevronClass =
   "pointer-events-none absolute top-1/2 right-3 size-4 -translate-y-1/2 text-[#71717A]"
 
@@ -200,7 +203,7 @@ export default function MyaRegisterPage() {
   }, [invalidScrollTick])
 
   function addCamper() {
-    setCampers((prev) => [...prev, createEmptyCamper()])
+    setCampers((prev) => (prev.length >= MAX_CAMPERS ? prev : [...prev, createEmptyCamper()]))
   }
 
   function removeLastCamper() {
@@ -417,7 +420,7 @@ export default function MyaRegisterPage() {
               </h2>
 
               <p className="text-sm leading-5 text-[#71717A]">
-                How many attendees are you registering in this batch?
+                How many attendees are you registering in this batch? You can register up to {MAX_CAMPERS} at a time.
               </p>
             </div>
 
@@ -442,8 +445,9 @@ export default function MyaRegisterPage() {
               <button
                 type="button"
                 aria-label="Add one camper"
+                disabled={camperCount >= MAX_CAMPERS}
                 onClick={addCamper}
-                className="flex h-9 w-9 items-center justify-center rounded-md bg-[#18181B] text-white shadow-sm transition hover:scale-[1.03] hover:bg-zinc-700 active:scale-100"
+                className="flex h-9 w-9 items-center justify-center rounded-md bg-[#18181B] text-white shadow-sm transition hover:scale-[1.03] hover:bg-zinc-700 active:scale-100 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:scale-100"
               >
                 <Plus size={16} />
               </button>
@@ -653,7 +657,7 @@ export default function MyaRegisterPage() {
                     Account name
                   </p>
                   <p className="text-sm font-semibold leading-5 text-[#F05922]">
-                    CAMPFEARLESS
+                    1145636#Camp
                   </p>
                 </div>
               </div>

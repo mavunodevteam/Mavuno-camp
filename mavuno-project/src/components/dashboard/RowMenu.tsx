@@ -1,50 +1,125 @@
-import { MoreVertical } from "lucide-react"
+import { MoreVertical, CheckCircle, HeartHandshake, Edit, Undo2, XCircle, DoorOpen } from "lucide-react"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
 
-const ITEM_CLASS = "block w-full rounded-sm px-2 py-1.5 text-left text-sm hover:bg-muted"
-
-/* The three dots menu on each roster row. Only shown to heads and admins. */
 export function RowMenu({
+  status,
   paymentStatus,
+  onCheckIn,
+  onExitPermit,
+  onUndoCheckIn,
+  onEdit,
+  onCancel,
   onVerifyPayment,
   onApproveAssistance,
+  isHead,
 }: {
+  status: "registered" | "checked_in" | "checked_out"
   paymentStatus: string | null
+  onCheckIn: () => void
+  onExitPermit: () => void
+  onUndoCheckIn: () => void
+  onEdit: () => void
+  onCancel: () => void
   onVerifyPayment: () => void
   onApproveAssistance: () => void
+  isHead: boolean
 }) {
   const canVerify = paymentStatus === "pending"
   const canApprove = paymentStatus === "waiver_requested"
 
-  if (!canVerify && !canApprove) {
-    return <span className="text-xs text-muted-foreground">-</span>
-  }
-
-  /* Closes the menu, then runs the action */
-  const run = (action: () => void) => (e: React.MouseEvent<HTMLButtonElement>) => {
-    e.currentTarget.closest("details")?.removeAttribute("open")
-    action()
-  }
-
   return (
-    <details className="relative">
-      <summary
-        aria-label="More actions"
-        className="flex size-8 cursor-pointer list-none items-center justify-center rounded-md hover:bg-muted"
-      >
+    <DropdownMenu>
+      <DropdownMenuTrigger className="relative inline-flex size-8 items-center justify-center rounded-md hover:bg-accent">
         <MoreVertical className="size-4" />
-      </summary>
-      <div className="absolute right-0 z-10 mt-1 w-48 rounded-md border bg-popover p-1 shadow-md">
-        {canVerify && (
-          <button type="button" className={ITEM_CLASS} onClick={run(onVerifyPayment)}>
-            Verify payment
-          </button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" className="w-52">
+
+        {/* ---------- REGISTERED (not yet on site) ---------- */}
+        {status === "registered" && (
+          <>
+            <DropdownMenuItem onClick={onCheckIn}>
+              <CheckCircle className="mr-2 size-4" />
+              Check in
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem onClick={onEdit}>
+              <Edit className="mr-2 size-4" />
+              Edit details
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={onCancel} className="text-destructive focus:text-destructive">
+              <XCircle className="mr-2 size-4" />
+              Cancel registration
+            </DropdownMenuItem>
+
+            {/* Payment actions only appear for registered campers */}
+            {(canVerify || canApprove) && <DropdownMenuSeparator />}
+            {canVerify && (
+              <DropdownMenuItem onClick={onVerifyPayment}>
+                <CheckCircle className="mr-2 size-4" />
+                Verify payment
+              </DropdownMenuItem>
+            )}
+            {canApprove && (
+              <DropdownMenuItem onClick={onApproveAssistance}>
+                <HeartHandshake className="mr-2 size-4" />
+                Approve assistance
+              </DropdownMenuItem>
+            )}
+          </>
         )}
-        {canApprove && (
-          <button type="button" className={ITEM_CLASS} onClick={run(onApproveAssistance)}>
-            Approve assistance
-          </button>
+
+        {/* ---------- CHECKED IN (on site, not yet departed) ---------- */}
+        {status === "checked_in" && (
+          <>
+            {isHead && (
+              <>
+                <DropdownMenuItem onClick={onExitPermit}>
+                  <DoorOpen className="mr-2 size-4" />
+                  Issue exit permit
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+              </>
+            )}
+            <DropdownMenuItem onClick={onUndoCheckIn}>
+              <Undo2 className="mr-2 size-4" />
+              Undo check-in
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={onEdit}>
+              <Edit className="mr-2 size-4" />
+              Edit details
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={onCancel} className="text-destructive focus:text-destructive">
+              <XCircle className="mr-2 size-4" />
+              Cancel registration
+            </DropdownMenuItem>
+          </>
         )}
-      </div>
-    </details>
+
+        {/* ---------- CHECKED OUT (exit permit already issued) ---------- */}
+        {status === "checked_out" && (
+          <>
+            <DropdownMenuItem onClick={onUndoCheckIn}>
+              <Undo2 className="mr-2 size-4" />
+              Undo check-in
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={onEdit}>
+              <Edit className="mr-2 size-4" />
+              Edit details
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={onCancel} className="text-destructive focus:text-destructive">
+              <XCircle className="mr-2 size-4" />
+              Cancel registration
+            </DropdownMenuItem>
+          </>
+        )}
+
+      </DropdownMenuContent>
+    </DropdownMenu>
   )
 }

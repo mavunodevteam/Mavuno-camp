@@ -5,7 +5,8 @@ import { Button, buttonVariants } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
 import { cn } from "@/lib/utils"
 import type { Camp } from "@/lib/api/types"
-import { ageLabel, formatRange } from "@/lib/format"
+import { ageLabel } from "@/lib/format"
+import { formatCampRange } from "@/lib/welcome"
 
 
 /* The words and pictures live here; dates, ages and open status come from the database */
@@ -44,7 +45,7 @@ export function CampCard({ camp }: { camp: Camp }) {
       </div>
       <CardHeader>
         <CardTitle className="text-lg font-bold">{camp.name}</CardTitle>
-        <p className="text-sm font-semibold">{formatRange(camp.start_date, camp.end_date)}</p>
+        <p className="text-sm font-semibold">{formatCampRange(camp.start_date, camp.end_date)}</p>
       </CardHeader>
       <CardContent className="flex-1">
         <CardDescription>{content.description}</CardDescription>

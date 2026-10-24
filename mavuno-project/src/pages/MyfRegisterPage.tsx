@@ -642,7 +642,7 @@ export default function MyfRegisterPage() {
                     Account name
                   </p>
                   <p className="text-sm font-semibold leading-5 text-[#F05922]">
-                    CAMPFEARLESS
+                    1145636#Camp
                   </p>
                 </div>
               </div>
