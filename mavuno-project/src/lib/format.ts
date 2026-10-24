@@ -16,3 +16,17 @@ export function formatRange(start: string, end: string): string {
 export function ageLabel(camp: Camp): string {
   return camp.max_age !== null ? `Age ${camp.min_age} - ${camp.max_age}` : `Age ${camp.min_age}+`
 }
+
+export function formatDateTime(date: Date): string {
+  return date.toLocaleString("en-KE", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  })
+}
+
+export function formatNumber(value: number): string {
+  return new Intl.NumberFormat("en-KE").format(value)
+}

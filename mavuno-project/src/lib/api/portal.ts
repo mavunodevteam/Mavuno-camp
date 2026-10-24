@@ -39,6 +39,7 @@ export async function fetchRoster(f: RosterFilters): Promise<RosterResult> {
   if (f.campId) query = query.eq("camp_id", f.campId)
   if (f.campus) query = query.eq("campus", f.campus)
   if (f.status) query = query.eq("attendance_status", f.status)
+    
 
   if (f.search) {
     const s = f.search.replace(/[%_]/g, "")
@@ -172,17 +173,3 @@ export async function fetchWaivers(): Promise<WaiverRow[]> {
   })
 }
 
-export async function approveWaiver(batchId: string): Promise<void> {
-  const { error } = await supabase.rpc("approve_waiver", { p_batch_id: batchId })
-  if (error) throw new Error(friendlyError(error))
-}
-
-export async function rejectWaiver(batchId: string): Promise<void> {
-  const { error } = await supabase
-    .from("payments")
-    .update({ status: "failed" })
-    .eq("batch_id", batchId)
-    .eq("status", "waiver_requested")
-  
-  if (error) throw new Error(friendlyError(error))
-}

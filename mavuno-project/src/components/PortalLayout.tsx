@@ -1,5 +1,5 @@
 import { Link, Outlet, useLocation, useNavigate } from "react-router"
-import { LogOut } from "lucide-react"
+import { LogOut, MoreVertical } from "lucide-react"
 import {
   Sidebar,
   SidebarContent,
@@ -15,6 +15,7 @@ import {
   SidebarProvider,
   SidebarTrigger,
 } from "@/components/ui/sidebar"
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
 import { Separator } from "@/components/ui/separator"
 import { useAuth } from "@/components/AuthProvider"
 import { signOut } from "@/lib/api/auth"
@@ -22,6 +23,24 @@ import { titleFor, visibleSections } from "@/lib/nav"
 import { cn } from "@/lib/utils"
 import { useWalkInPaymentAside } from "@/hooks/use-walk-in-payment-aside"
 import logo from "@/assets/camp-fearless-logo.png"
+import { ThemeToggle } from "@/components/theme-toggle"
+
+/* The three access levels, as people read them. Super admins are created in Supabase, not invited. */
+const LEVEL_LABELS: Record<string, string> = {
+  admin: "Super admin",
+  head: "Head",
+  facilitator: "Facilitator",
+}
+
+const levelLabel = (level?: string | null) => (level ? (LEVEL_LABELS[level] ?? level) : "")
+
+function initialsOf(name?: string | null): string {
+  const parts = (name ?? "").trim().split(/\s+/).filter(Boolean)
+  if (parts.length === 0) return "?"
+  const first = parts[0][0] ?? ""
+  const last = parts.length > 1 ? (parts[parts.length - 1][0] ?? "") : ""
+  return (first + last).toUpperCase()
+}
 
 function PortalLayoutInset({ pathname }: { pathname: string }) {
   const isWalkInRegistration = pathname === "/registration"
@@ -43,6 +62,9 @@ function PortalLayoutInset({ pathname }: { pathname: string }) {
         >
           {titleFor(pathname)}
         </h1>
+        <div className="ml-auto flex items-center gap-2">
+          <ThemeToggle />
+        </div>
       </header>
       <main
         className={cn(
@@ -63,6 +85,8 @@ export default function PortalLayout() {
   const { profile } = useAuth()
 
   const sections = visibleSections(profile?.access_level)
+  const role = levelLabel(profile?.access_level)
+  const name = profile?.full_name ?? ""
 
   const handleSignOut = async () => {
     await signOut()
@@ -73,8 +97,15 @@ export default function PortalLayout() {
     <SidebarProvider>
       <Sidebar variant="inset" className="print:hidden">
         <SidebarHeader>
-          <div className="flex items-center gap-2 px-2 py-3">
-            <img src={logo} alt="Camp Fearless" className="h-8 w-auto" />
+          <div className="flex items-center gap-3 px-2 py-3">
+            {/* The logo artwork is light, so it sits on a dark tile that works in both light and dark mode */}
+            <div className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-neutral-900 p-1">
+              <img src={logo} alt="Camp Fearless" className="size-full object-contain" />
+            </div>
+            <div className="flex min-w-0 flex-col leading-tight">
+              <span className="truncate text-sm font-bold uppercase tracking-wide">Camp Fearless</span>
+              <span className="truncate text-xs text-muted-foreground">{role}</span>
+            </div>
           </div>
         </SidebarHeader>
 
@@ -104,16 +135,34 @@ export default function PortalLayout() {
         <SidebarFooter>
           <SidebarMenu>
             <SidebarMenuItem>
-              <div className="px-2 py-1 text-sm">
-                <p className="font-medium">{profile?.full_name}</p>
-                <p className="text-xs capitalize text-muted-foreground">{profile?.access_level}</p>
-              </div>
-            </SidebarMenuItem>
-            <SidebarMenuItem>
-              <SidebarMenuButton onClick={handleSignOut}>
-                <LogOut />
-                <span>Sign out</span>
-              </SidebarMenuButton>
+              <DropdownMenu>
+                <DropdownMenuTrigger render={<SidebarMenuButton size="lg" className="h-12" />}>
+                  <span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-orange-500 text-sm font-medium text-white">
+                    {initialsOf(name).slice(0, 1)}
+                  </span>
+                  <span className="flex min-w-0 flex-1 flex-col text-left leading-tight">
+                    <span className="truncate text-sm font-medium">{name}</span>
+                    <span className="truncate text-xs text-muted-foreground">{role}</span>
+                  </span>
+                  <MoreVertical className="ml-auto size-4 shrink-0 text-muted-foreground" />
+                </DropdownMenuTrigger>
+                <DropdownMenuContent side="right" align="end" className="w-64">
+                  <div className="flex items-center gap-3 px-3 py-2.5">
+                    <span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-muted text-xs font-medium text-muted-foreground">
+                      {initialsOf(name)}
+                    </span>
+                    <span className="flex min-w-0 flex-col leading-tight">
+                      <span className="truncate text-sm font-medium">{name}</span>
+                      <span className="truncate text-xs text-muted-foreground">{role}</span>
+                    </span>
+                  </div>
+                  <Separator />
+                  <DropdownMenuItem onClick={handleSignOut}>
+                    <LogOut className="size-4" />
+                    Log out
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
             </SidebarMenuItem>
           </SidebarMenu>
         </SidebarFooter>

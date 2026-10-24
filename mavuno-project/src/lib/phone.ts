@@ -40,3 +40,23 @@ export function normalizePhone(input: string | null | undefined): string | null 
 
   return null
 }
+
+/**
+ * Validates a Kenyan mobile number.
+ * Accepts: 0712345678, +254712345678, 254712345678, 712345678
+ */
+export function isValidPhone(input: string | null | undefined): boolean {
+  if (!input) return false
+  const digits = input.replace(/\D/g, "")
+
+  // Local format: 0712345678 (10 digits starting with 0, second digit 1 or 7)
+  if (digits.length === 10 && /^0[17]\d{8}$/.test(digits)) return true
+
+  // International: 254712345678 (12 digits, second part 7XXXXXXXX)
+  if (digits.length === 12 && /^254[17]\d{8}$/.test(digits)) return true
+
+  // Bare 9 digits: 712345678
+  if (digits.length === 9 && /^[17]\d{8}$/.test(digits)) return true
+
+  return false
+}

@@ -1,15 +1,22 @@
-export type Camp = {
+export interface Camp {
   id: string
   name: string
-  category: "myf" | "mya"
-  start_date: string
-  end_date: string
+  category: 'myf' | 'mya'
+  start_date: string | null
+  end_date: string | null
   min_age: number
   max_age: number | null
   fee_online: number
   fee_walk_in: number
   registration_open: boolean
-  created_at: string
+  runs?: boolean
+  registration_opens?: string | null
+  registration_closes?: string | null
+  welcome_description?: string | null
+  welcome_image_url?: string | null
+  welcome_bring?: string | null
+  welcome_expect?: string | null
+  welcome_know?: string | null
 }
 
 export type Campus = {

@@ -40,7 +40,9 @@ export interface RosterTableProps {
   busyId: string | null
   onCheckIn: (row: RosterRow) => void
   onExitPermit: (row: RosterRow) => void
-  canManage?: boolean
+  onUndoCheckIn: (row: RosterRow) => void
+  onEditDetails: (row: RosterRow) => void
+  onCancelRegistration: (row: RosterRow) => void
   onVerifyPayment?: (row: RosterRow) => void
   onApproveAssistance?: (row: RosterRow) => void
 }
@@ -102,18 +104,18 @@ export function RosterTable(p: RosterTableProps) {
               <TableHead>Medical condition</TableHead>
               <TableHead>Special needs</TableHead>
               <TableHead>Actions</TableHead>
-              {p.canManage && <TableHead>More</TableHead>}
+              <TableHead>More</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {p.loading && (
               <TableRow>
-                <TableCell colSpan={p.canManage ? 8 : 7}>Loading...</TableCell>
+                <TableCell colSpan={8}>Loading...</TableCell>
               </TableRow>
             )}
             {!p.loading && p.rows.length === 0 && (
               <TableRow>
-                <TableCell colSpan={p.canManage ? 8 : 7}>No campers found.</TableCell>
+                <TableCell colSpan={8}>No campers found.</TableCell>
               </TableRow>
             )}
             {!p.loading &&
@@ -166,15 +168,20 @@ export function RosterTable(p: RosterTableProps) {
                         <span className="text-xs text-muted-foreground">{formatTime(row.checked_out_at)}</span>
                       )}
                     </TableCell>
-                    {p.canManage && (
-                      <TableCell>
-                        <RowMenu
-                          paymentStatus={row.payment_status}
-                          onVerifyPayment={() => p.onVerifyPayment?.(row)}
-                          onApproveAssistance={() => p.onApproveAssistance?.(row)}
-                        />
-                      </TableCell>
-                    )}
+                    <TableCell>
+                      <RowMenu
+                        status={row.attendance_status}
+                        paymentStatus={row.payment_status}
+                        onCheckIn={() => p.onCheckIn(row)}
+                        onExitPermit={() => p.onExitPermit(row)}
+                        onUndoCheckIn={() => p.onUndoCheckIn(row)}
+                        onEdit={() => p.onEditDetails(row)}
+                        onCancel={() => p.onCancelRegistration(row)}
+                        onVerifyPayment={() => p.onVerifyPayment?.(row)}
+                        onApproveAssistance={() => p.onApproveAssistance?.(row)}
+                        isHead={p.isHead}
+                      />
+                    </TableCell>
                   </TableRow>
                 )
               })}

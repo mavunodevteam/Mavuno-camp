@@ -1,29 +1,39 @@
 import { useEffect, useState } from "react"
 import { Printer } from "lucide-react"
 import { toast } from "sonner"
-import { ReportFilterBar } from "@/components/reports/ReportFilterBar"
+import { ReportFilterBar, ReportOptions } from "@/components/reports/ReportFilterBar"
+import { ReportRecordDialog } from "@/components/reports/ReportRecordDialog"
 import { ReportTable } from "@/components/reports/ReportTable"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
-import { fetchCamps, fetchCampuses } from "@/lib/api/lookups"
-import { fetchReportRows, fetchReportTotal } from "@/lib/api/reports"
-import type { ReportFilters, ReportRow } from "@/lib/api/reports"
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { fetchCampuses, fetchFacilitatorRoles } from "@/lib/api/lookups"
+import { fetchReportCamps } from "@/lib/api/reportCamps"
 import {
-  DEFAULT_COLUMNS,
-  GENDER_LABELS,
-  PAYMENT_LABELS,
-  REGISTRATION_LABELS,
-  STATUS_LABELS,
+  fetchAges,
+  fetchEditions,
+  fetchReportRows,
+  fetchReportTotal,
+  type EditionInfo,
+  type ReportFilters,
+  type ReportRow,
+} from "@/lib/api/reports"
+import {
+  KIND_DEFAULTS,
+  KIND_DESCRIPTION,
+  PARTICIPANT_OF,
   TEMPLATES,
+  buildTitle,
   type ColumnId,
+  type ReportKind,
 } from "@/lib/reportConfig"
 import { useDebouncedValue } from "@/lib/useDashboardData"
 
 interface CampInfo {
   id: string
   category: string
-  start_date?: string
+  edition_id: string | null
 }
 
 /* When printing, hide the sidebar and the page chrome so only the report is on paper.
@@ -38,27 +48,21 @@ const PRINT_CSS = `
 }
 `
 
-/* A title built from the filters, until the person types their own */
-function buildTitle(filters: ReportFilters, camps: CampInfo[]): string {
-  const camp = camps.find((c) => c.id === filters.campId)
-  const year = (camp?.start_date ?? camps[0]?.start_date ?? "").slice(0, 4) || String(new Date().getFullYear())
-  const parts = [`${camp ? camp.category.toUpperCase() : "All camps"} ${year}`]
-  if (filters.registration) parts.push(REGISTRATION_LABELS[filters.registration])
-  if (filters.status) parts.push(STATUS_LABELS[filters.status])
-  if (filters.payment) parts.push(PAYMENT_LABELS[filters.payment])
-  if (filters.gender) parts.push(GENDER_LABELS[filters.gender])
-  if (filters.campus) parts.push(filters.campus)
-  if (filters.needsCare) parts.push("Medical or special needs")
-  return parts.join(" - ")
-}
-
 export default function ReportsPage() {
+  const [kind, setKind] = useState<ReportKind>("campers")
+
+  const [editions, setEditions] = useState<EditionInfo[]>([])
   const [camps, setCamps] = useState<CampInfo[]>([])
   const [campuses, setCampuses] = useState<{ id: string; name: string }[]>([])
+  const [roles, setRoles] = useState<{ id: string; name: string }[]>([])
+  const [ages, setAges] = useState<number[]>([])
+  const [defaultEdition, setDefaultEdition] = useState<string | undefined>(undefined)
+  const [ready, setReady] = useState(false)
 
   const [filters, setFilters] = useState<ReportFilters>({})
   const [search, setSearch] = useState("")
-  const [columns, setColumns] = useState<ColumnId[]>(DEFAULT_COLUMNS)
+  const [columns, setColumns] = useState<ColumnId[]>(KIND_DEFAULTS.campers)
+  const [templateId, setTemplateId] = useState<string | null>(null)
   const [title, setTitle] = useState("")
   const [titleEdited, setTitleEdited] = useState(false)
 
@@ -66,25 +70,35 @@ export default function ReportsPage() {
   const [totalAll, setTotalAll] = useState(0)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [viewing, setViewing] = useState<ReportRow | null>(null)
 
   const debouncedSearch = useDebouncedValue(search)
-  const key = JSON.stringify({ ...filters, search: debouncedSearch })
+  const key = JSON.stringify({ kind, filters, search: debouncedSearch })
 
+  /* The lists behind the dropdowns. The report starts on the open edition, as in the design. */
   useEffect(() => {
-    Promise.all([fetchCamps(), fetchCampuses(), fetchReportTotal()])
-      .then(([campList, campusList, total]) => {
+    Promise.all([fetchEditions(), fetchReportCamps(), fetchCampuses(), fetchFacilitatorRoles(), fetchAges()])
+      .then(([editionList, campList, campusList, roleList, ageList]) => {
+        const open = editionList.find((e) => e.is_open)
+        setEditions(editionList)
         setCamps(campList)
         setCampuses(campusList)
-        setTotalAll(total)
+        setRoles(roleList)
+        setAges(ageList)
+        setDefaultEdition(open?.id)
+        setFilters({ editionId: open?.id })
       })
       .catch((e: Error) => toast.error(e.message))
+      .finally(() => setReady(true))
   }, [])
 
   useEffect(() => {
+    if (!ready) return
     let cancelled = false
     setLoading(true)
     setError(null)
-    fetchReportRows(JSON.parse(key) as ReportFilters)
+    const parsed = JSON.parse(key) as { kind: ReportKind; filters: ReportFilters; search: string }
+    fetchReportRows({ ...parsed.filters, search: parsed.search }, PARTICIPANT_OF[parsed.kind])
       .then((result) => {
         if (cancelled) return
         setRows(result)
@@ -98,19 +112,38 @@ export default function ReportsPage() {
     return () => {
       cancelled = true
     }
-  }, [key])
+  }, [key, ready])
+
+  useEffect(() => {
+    fetchReportTotal(PARTICIPANT_OF[kind])
+      .then(setTotalAll)
+      .catch((e: Error) => toast.error(e.message))
+  }, [kind])
 
   const campName = (campId: string) => {
     const camp = camps.find((c) => c.id === campId)
     return camp ? camp.category.toUpperCase() : "-"
   }
 
-  const shownTitle = titleEdited ? title : buildTitle(filters, camps)
+  const shownTitle = titleEdited ? title : buildTitle(kind, filters, camps, editions)
 
-  function applyTemplate(templateId: string) {
-    const template = TEMPLATES.find((t) => t.id === templateId)
+  /* Switching tab starts that report fresh, on the same edition */
+  function changeKind(next: ReportKind) {
+    setKind(next)
+    setFilters({ editionId: defaultEdition })
+    setSearch("")
+    setColumns(KIND_DEFAULTS[next])
+    setTemplateId(null)
+    setTitle("")
+    setTitleEdited(false)
+  }
+
+  function applyTemplate(id: string | null) {
+    setTemplateId(id)
+    if (id === null) return
+    const template = TEMPLATES[kind].find((t) => t.id === id)
     if (!template) return
-    setFilters(template.filters)
+    setFilters({ editionId: defaultEdition, ...template.filters })
     setSearch("")
     setColumns(template.columns)
     setTitle(template.title)
@@ -118,66 +151,99 @@ export default function ReportsPage() {
   }
 
   function reset() {
-    setFilters({})
+    setFilters({ editionId: defaultEdition })
     setSearch("")
-    setColumns(DEFAULT_COLUMNS)
+    setColumns(KIND_DEFAULTS[kind])
+    setTemplateId(null)
     setTitle("")
     setTitleEdited(false)
   }
 
   return (
-    <Card>
+    <div className="space-y-4">
       <style>{PRINT_CSS}</style>
-      <CardHeader className="print:hidden">
-        <CardTitle>Camp roster &amp; status monitor</CardTitle>
-        <CardDescription>Filter, review and print camper and facilitator records.</CardDescription>
-      </CardHeader>
-      <CardContent className="space-y-4">
-        <ReportFilterBar
-          filters={filters}
-          onFiltersChange={setFilters}
-          search={search}
-          onSearchChange={setSearch}
-          camps={camps}
-          campuses={campuses}
-          columns={columns}
-          onColumnsChange={setColumns}
-          onTemplate={applyTemplate}
-          onReset={reset}
-        />
 
-        <div className="space-y-3 rounded-lg border p-4 print:border-0 print:p-0">
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+      <Tabs value={kind} onValueChange={(v) => changeKind(String(v) as ReportKind)} className="print:hidden">
+        <TabsList>
+          <TabsTrigger value="campers">Campers</TabsTrigger>
+          <TabsTrigger value="facilitators">Facilitators</TabsTrigger>
+          <TabsTrigger value="age-gender">Age and gender</TabsTrigger>
+        </TabsList>
+      </Tabs>
+
+      <Card className="print:hidden">
+        <CardHeader>
+          <CardTitle>Camp roster &amp; status monitor</CardTitle>
+          <CardDescription>{KIND_DESCRIPTION[kind]}</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <ReportFilterBar
+            kind={kind}
+            filters={filters}
+            onFiltersChange={setFilters}
+            search={search}
+            onSearchChange={setSearch}
+            editions={editions}
+            camps={camps}
+            campuses={campuses}
+            roles={roles}
+            ages={ages}
+            onReset={reset}
+          />
+        </CardContent>
+      </Card>
+
+      <Card className="print:border-0 print:shadow-none">
+        <CardContent className="space-y-4 print:p-0">
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
             <div className="space-y-1">
-              <p className="text-sm font-semibold print:hidden">Report title</p>
-              <p className="text-xs text-muted-foreground print:hidden">Built from your filters. Edit it before printing.</p>
+              <p className="text-base font-semibold print:hidden">Report title</p>
+              <p className="text-sm text-muted-foreground print:hidden">Built from your filters. Edit it before printing.</p>
               <Input
                 value={shownTitle}
                 onChange={(e) => {
                   setTitle(e.target.value)
                   setTitleEdited(true)
                 }}
-                className="w-80 print:hidden"
+                className="mt-2 w-full max-w-md print:hidden"
               />
               <h2 className="hidden text-xl font-bold print:block">{shownTitle}</h2>
               <p className="hidden text-xs text-muted-foreground print:block">
                 Printed on {new Date().toLocaleString("en-KE", { dateStyle: "medium", timeStyle: "short" })}
               </p>
             </div>
-            <div className="flex items-center gap-4">
-              <span className="text-xs text-muted-foreground">
-                {rows.length.toLocaleString()} of {totalAll.toLocaleString()} records
-              </span>
+            <div className="flex flex-col items-end gap-3">
               <Button onClick={() => window.print()} className="print:hidden">
                 <Printer className="size-4" />
                 Print report
               </Button>
+              <span className="text-sm text-muted-foreground">
+                {rows.length.toLocaleString()} of {totalAll.toLocaleString()} records
+              </span>
             </div>
           </div>
 
-          <ReportTable rows={rows} columns={columns} campName={campName} loading={loading} error={error} />
-        </div>
-      </CardContent>
-    </Card>
+          <ReportOptions
+            kind={kind}
+            templateId={templateId}
+            onTemplate={applyTemplate}
+            columns={columns}
+            onColumnsChange={setColumns}
+          />
+        </CardContent>
+      </Card>
+
+      <ReportTable
+        kind={kind}
+        rows={rows}
+        columns={columns}
+        campName={campName}
+        loading={loading}
+        error={error}
+        onView={setViewing}
+      />
+
+      <ReportRecordDialog row={viewing} campName={campName} onClose={() => setViewing(null)} />
+    </div>
   )
 }

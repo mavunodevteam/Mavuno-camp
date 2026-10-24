@@ -1,15 +1,18 @@
 import { supabase } from "@/lib/supabase"
 import type { Camp, Campus, FacilitatorRole, DepartureReason } from "./types"
+import { friendlyError } from "../errors"
 
 export async function fetchCamps(): Promise<Camp[]> {
   const { data, error } = await supabase
     .from("camps")
-    .select("*")
-    .order("start_date", { ascending: true })
-
-  if (error) throw new Error(error.message)
-  return data as Camp[]
+    .select("*, editions!inner(is_open)")
+    .eq("editions.is_open", true)
+    .eq("runs", true)
+    .order("start_date")
+  if (error) throw new Error(friendlyError(error))
+  return (data ?? []) as Camp[]
 }
+
 
 export async function fetchCampById(id: string): Promise<Camp | null> {
   const { data, error } = await supabase
@@ -22,15 +25,17 @@ export async function fetchCampById(id: string): Promise<Camp | null> {
   return data as Camp | null
 }
 
+// CORRECT
 export async function fetchCampByCategory(category: "myf" | "mya"): Promise<Camp | null> {
   const { data, error } = await supabase
     .from("camps")
-    .select("*")
+    .select("*, editions!inner(is_open)")
+    .eq("editions.is_open", true)
+    .eq("runs", true)
     .eq("category", category)
     .maybeSingle()
-
-  if (error) throw new Error(error.message)
-  return data as Camp | null
+  if (error) throw new Error(friendlyError(error))
+  return (data as Camp | null) ?? null
 }
 
 export async function fetchCampuses(): Promise<Campus[]> {
@@ -61,4 +66,10 @@ export async function fetchDepartureReasons(): Promise<DepartureReason[]> {
 
   if (error) throw new Error(error.message)
   return data as DepartureReason[]
+}
+
+export async function fetchAllCamps(): Promise<Camp[]> {
+  const { data, error } = await supabase.from("camps").select("*").order("start_date")
+  if (error) throw new Error(friendlyError(error))
+  return (data ?? []) as Camp[]
 }

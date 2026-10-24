@@ -21,3 +21,14 @@ export async function verifyPayment(batchId: string): Promise<void> {
     throw new Error("Nothing was changed. The payment may already be verified, or you may not have permission.")
   }
 }
+
+
+export async function rejectWaiver(batchId: string): Promise<void> {
+  const { error } = await supabase
+    .from("payments")
+    .update({ status: "failed" })
+    .eq("batch_id", batchId)
+    .eq("status", "waiver_requested")
+  
+  if (error) throw new Error(friendlyError(error))
+}

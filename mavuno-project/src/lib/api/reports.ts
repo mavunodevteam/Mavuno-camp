@@ -3,15 +3,19 @@ import { friendlyError } from "@/lib/errors"
 
 export type AttendanceStatus = "registered" | "checked_in" | "checked_out"
 export type PaymentStatus = "pending" | "success" | "failed" | "waiver_requested" | "waiver_approved"
-export type RegistrationKind = "online" | "walk_in" | "facilitator"
+export type RegistrationKind = "online" | "walk_in"
+export type ParticipantType = "camper" | "facilitator"
 
 export interface ReportFilters {
+  editionId?: string
   campId?: string
   gender?: "male" | "female"
   campus?: string
   payment?: PaymentStatus
   status?: AttendanceStatus
   registration?: RegistrationKind
+  role?: string /* a facilitator's team, such as Kitchen crew */
+  age?: number
   needsCare?: boolean /* medical condition or special needs */
   search?: string
 }
@@ -22,7 +26,7 @@ export interface ReportRow {
   batch_id: string
   camp_id: string
   source: "online" | "walk_in"
-  participant_type: "camper" | "facilitator"
+  participant_type: ParticipantType
   first_name: string
   last_name: string
   age: number
@@ -41,39 +45,45 @@ export interface ReportRow {
   checked_in_at: string | null
   checked_out_at: string | null
   created_at: string
-  wants_baptism?: boolean /* present once the view has been updated */
+  wants_baptism?: boolean /* these last four exist once the migration has been run */
+  edition_id?: string | null
+  facilitator_role?: string | null
+  serves_both?: boolean
+}
+
+export interface EditionInfo {
+  id: string
+  name: string
+  is_open: boolean
 }
 
 const CHUNK = 1000 /* the database returns at most this many rows per request */
 const MAX_ROWS = 5000
 
 /* Every row that matches, fetched in chunks, sorted by name for printing */
-export async function fetchReportRows(f: ReportFilters): Promise<ReportRow[]> {
+export async function fetchReportRows(f: ReportFilters, participant: ParticipantType): Promise<ReportRow[]> {
   const all: ReportRow[] = []
 
   for (let from = 0; from < MAX_ROWS; from += CHUNK) {
     let query = supabase
       .from("camper_roster")
       .select("*")
+      .eq("participant_type", participant)
       .order("last_name")
       .order("first_name")
       .order("registration_id")
       .range(from, from + CHUNK - 1)
 
+    if (f.editionId) query = query.eq("edition_id", f.editionId)
     if (f.campId) query = query.eq("camp_id", f.campId)
     if (f.gender) query = query.eq("gender", f.gender)
     if (f.campus) query = query.eq("campus", f.campus)
     if (f.payment) query = query.eq("payment_status", f.payment)
     if (f.status) query = query.eq("attendance_status", f.status)
+    if (f.registration) query = query.eq("source", f.registration)
+    if (f.role) query = query.eq("facilitator_role", f.role)
+    if (f.age !== undefined) query = query.eq("age", f.age)
     if (f.needsCare) query = query.or("has_medical_condition.eq.true,has_special_needs.eq.true")
-
-    if (f.registration === "facilitator") {
-      query = query.eq("participant_type", "facilitator")
-    } else if (f.registration === "online") {
-      query = query.eq("participant_type", "camper").eq("source", "online")
-    } else if (f.registration === "walk_in") {
-      query = query.eq("participant_type", "camper").eq("source", "walk_in")
-    }
 
     const terms = (f.search ?? "").trim().split(/\s+/).filter(Boolean)
     for (const raw of terms) {
@@ -95,11 +105,34 @@ export async function fetchReportRows(f: ReportFilters): Promise<ReportRow[]> {
   return all
 }
 
-/* The "of 38 records" figure: everything in the roster, ignoring filters */
-export async function fetchReportTotal(): Promise<number> {
+/* The "of 41 records" figure: everyone of this kind, in every edition, ignoring filters */
+export async function fetchReportTotal(participant: ParticipantType): Promise<number> {
   const { count, error } = await supabase
     .from("camper_roster")
     .select("*", { count: "exact", head: true })
+    .eq("participant_type", participant)
   if (error) throw new Error(friendlyError(error))
   return count ?? 0
+}
+
+/* Editions are optional: until the migration is run this returns nothing and the filter is hidden */
+export async function fetchEditions(): Promise<EditionInfo[]> {
+  const { data, error } = await supabase
+    .from("editions")
+    .select("id, name, is_open")
+    .order("created_at", { ascending: false })
+  if (error) return []
+  return (data ?? []) as EditionInfo[]
+}
+
+/* The ages that exist among campers, for the Age filter on the Age and gender tab */
+export async function fetchAges(): Promise<number[]> {
+  const { data, error } = await supabase
+    .from("camper_roster")
+    .select("age")
+    .eq("participant_type", "camper")
+    .limit(MAX_ROWS)
+  if (error) return []
+  const ages = new Set<number>((data ?? []).map((row: { age: number }) => row.age))
+  return Array.from(ages).sort((a, b) => a - b)
 }

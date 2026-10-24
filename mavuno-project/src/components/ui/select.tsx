@@ -3,7 +3,23 @@ import { Select as SelectPrimitive } from "@base-ui/react/select"
 import { cn } from "cn"
 import { ChevronDownIcon, CheckIcon, ChevronUpIcon } from "lucide-react"
 
-const Select = SelectPrimitive.Root
+function Select({
+  onValueChange,
+  value,
+  ...props
+}: {
+  onValueChange?: (value: string, details: any) => void
+  value?: string | null
+  [key: string]: any
+}) {
+  return (
+    <SelectPrimitive.Root
+      {...props}
+      value={value}
+      onValueChange={(v: string | null, d: any) => onValueChange?.(v ?? "", d)}
+    />
+  )
+}
 
 function SelectGroup({ className, ...props }: SelectPrimitive.Group.Props) {
   return (
@@ -196,3 +212,5 @@ export {
   SelectTrigger,
   SelectValue,
 }
+
+
